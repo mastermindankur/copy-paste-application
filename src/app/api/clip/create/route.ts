@@ -60,10 +60,18 @@ export async function POST() {
 
 
     // Construct the URL for the new collection using the environment variable
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL; // Use the env variable
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL; // Use the env variable determined in next.config.js
     if (!baseUrl) {
         console.error('NEXT_PUBLIC_BASE_URL environment variable is not set!');
-        throw new Error('Server configuration error: Base URL not found.');
+        // Don't throw here, provide a fallback or log, but it indicates a config issue
+        // Fallback to relative URL which might work in some scenarios but isn't ideal
+        const collectionUrl = `/clip/${collectionId}`;
+        console.warn('Warning: NEXT_PUBLIC_BASE_URL not set, using relative URL:', collectionUrl);
+        const response: CreateResponse = {
+            url: collectionUrl,
+            id: collectionId,
+        };
+        return NextResponse.json(response, { status: 201 });
     }
     const collectionUrl = `${baseUrl}/clip/${collectionId}`;
 
