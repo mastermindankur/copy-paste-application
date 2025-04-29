@@ -1,3 +1,4 @@
+
 import { initializeApp, getApps, getApp, FirebaseOptions, FirebaseError } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
@@ -37,10 +38,10 @@ let firebaseInitializationError: string | null = null;
 
 if (missingEnvVars.length > 0) {
   firebaseInitializationError = `Missing Firebase environment variables: ${missingEnvVars.join(', ')}. Please check your .env file.`;
-  console.error(`Error: ${firebaseInitializationError}`);
+  // Removed console.error to prevent Next.js overlay
 } else if (usingPlaceholders) {
     firebaseInitializationError = `Using placeholder Firebase environment variables. Firebase features will not work correctly. Please update your .env file with actual credentials.`;
-    console.warn(`Warning: ${firebaseInitializationError}`);
+   // Removed console.warn to prevent potential overlay issues/noise
     // Proceed with placeholders for basic app structure rendering
     firebaseConfig = {
         apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -72,7 +73,7 @@ let auth: ReturnType<typeof getAuth> | null = null;
 let db: ReturnType<typeof getFirestore> | null = null;
 let storage: ReturnType<typeof getStorage> | null = null;
 
-// Only attempt initialization if config is present and no critical errors occurred
+// Only attempt initialization if config is present and no critical errors occurred (missing vars)
 if (Object.keys(firebaseConfig).length > 0 && !firebaseInitializationError?.startsWith('Missing')) {
     try {
         app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -80,17 +81,19 @@ if (Object.keys(firebaseConfig).length > 0 && !firebaseInitializationError?.star
         db = getFirestore(app);
         storage = getStorage(app);
         // Clear placeholder warning if initialization succeeds with placeholders (though functionality is limited)
-        if(usingPlaceholders && firebaseInitializationError?.startsWith('Using placeholder')) {
-            firebaseInitializationError = null; // Consider it handled, app structure loads
-        }
+        // Let the provider handle displaying the placeholder notice
+        // if(usingPlaceholders && firebaseInitializationError?.startsWith('Using placeholder')) {
+        //     firebaseInitializationError = null; // No need to clear here, provider checks the specific string
+        // }
     } catch (error: any) {
-        console.error("Firebase initialization error:", error);
+        console.error("Firebase initialization error:", error); // Keep this for actual init errors
         firebaseInitializationError = `Firebase Initialization Failed: ${error.message || 'Unknown error'}`;
 
         // Provide specific feedback based on error codes
         if (error instanceof FirebaseError) {
             if (error.code === 'auth/invalid-api-key' || error.code.includes('api-key-not-valid')) {
                 firebaseInitializationError = "Firebase Error: Invalid API Key. Check NEXT_PUBLIC_FIREBASE_API_KEY in your .env file.";
+                 // Keep critical console errors for debugging invalid keys
                 console.error("*******************************************************************");
                 console.error(" INVALID FIREBASE API KEY DETECTED ");
                 console.error(" Please check your .env file and ensure NEXT_PUBLIC_FIREBASE_API_KEY is correct.");
@@ -106,9 +109,16 @@ if (Object.keys(firebaseConfig).length > 0 && !firebaseInitializationError?.star
         storage = null;
     }
 } else {
-    // Log the existing error if initialization wasn't attempted
+    // If we have an initialization error (like missing vars), ensure services are null
     if (firebaseInitializationError) {
-        console.error(firebaseInitializationError);
+        // Log the reason for not initializing only if it's not handled by the provider already (e.g., missing vars)
+        if (!firebaseInitializationError.startsWith('Missing') && !firebaseInitializationError.startsWith('Using placeholder')) {
+            console.error(firebaseInitializationError);
+        }
+        app = null;
+        auth = null;
+        db = null;
+        storage = null;
     } else {
         // This case should ideally not be reached if logic is correct
         console.error("Unknown error preventing Firebase initialization.");
