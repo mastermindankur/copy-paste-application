@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, Arial, Helvetica, sans-serif; /* Use Inter as primary */
 }
 
 @layer base {
@@ -88,4 +88,85 @@ body {
     display: flex;
     flex-direction: column;
   }
+
+  /* Basic prose styles for rich text rendering */
+  .prose {
+    color: hsl(var(--foreground)); /* Use theme foreground color */
+  }
+
+  .prose a {
+    color: hsl(var(--accent)); /* Use theme accent color for links */
+    text-decoration: underline;
+  }
+  .prose a:hover {
+    opacity: 0.8;
+  }
+
+  .prose strong {
+    font-weight: 600; /* Bolder */
+  }
+
+  .prose em {
+    font-style: italic;
+  }
+
+  .prose code {
+    background-color: hsl(var(--muted)); /* Use muted background */
+    color: hsl(var(--muted-foreground)); /* Use muted foreground */
+    padding: 0.2em 0.4em;
+    border-radius: var(--radius);
+    font-size: 0.9em;
+  }
+
+  .prose pre {
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    padding: 1em;
+    border-radius: var(--radius);
+    overflow-x: auto;
+  }
+
+  .prose pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+  }
+
+  .prose ul,
+  .prose ol {
+    margin-left: 1.5em;
+    padding-left: 0.5em;
+  }
+
+  .prose li {
+    margin-bottom: 0.5em;
+  }
+
+  .prose blockquote {
+    border-left: 4px solid hsl(var(--border));
+    padding-left: 1em;
+    color: hsl(var(--muted-foreground));
+    font-style: italic;
+  }
+
+  /* Dark mode prose styles */
+  .dark .prose {
+     color: hsl(var(--foreground));
+  }
+  .dark .prose a {
+    color: hsl(var(--accent));
+  }
+  .dark .prose code {
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+  }
+   .dark .prose pre {
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+  }
+   .dark .prose blockquote {
+     border-left-color: hsl(var(--border));
+     color: hsl(var(--muted-foreground));
+   }
+
 }

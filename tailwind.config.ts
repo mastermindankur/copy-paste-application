@@ -12,7 +12,7 @@ export default {
   theme: {
   	extend: {
         fontFamily: {
-            sans: ["var(--font-sans)", ...fontFamily.sans], // Add the --font-sans variable
+            sans: ["var(--font-sans)", ...fontFamily.sans], // Use Inter font variable
         },
   		colors: {
   			background: 'hsl(var(--background))',
@@ -92,8 +92,67 @@ export default {
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
   			'accordion-up': 'accordion-up 0.2s ease-out'
-  		}
+  		},
+        // Add typography styles
+        typography: ({ theme }: { theme: any }) => ({
+            DEFAULT: {
+              css: {
+                color: 'hsl(var(--foreground))',
+                a: {
+                  color: 'hsl(var(--accent))',
+                  '&:hover': {
+                    color: 'hsl(var(--accent))',
+                    opacity: 0.8,
+                  },
+                },
+                strong: { color: 'hsl(var(--foreground))' },
+                code: {
+                  color: 'hsl(var(--muted-foreground))',
+                  backgroundColor: 'hsl(var(--muted))',
+                  padding: '0.2em 0.4em',
+                  borderRadius: theme('borderRadius.sm'),
+                },
+                pre: {
+                  color: 'hsl(var(--muted-foreground))',
+                  backgroundColor: 'hsl(var(--muted))',
+                },
+                blockquote: {
+                  color: 'hsl(var(--muted-foreground))',
+                  borderLeftColor: 'hsl(var(--border))',
+                },
+                // Add more styles as needed
+              },
+            },
+            invert: { // Styles for dark mode if you use `dark:` prefix with `prose`
+               css: {
+                  color: 'hsl(var(--foreground))',
+                  a: {
+                      color: 'hsl(var(--accent))',
+                      '&:hover': {
+                         color: 'hsl(var(--accent))',
+                         opacity: 0.8,
+                      },
+                  },
+                  strong: { color: 'hsl(var(--foreground))' },
+                  code: {
+                     color: 'hsl(var(--muted-foreground))',
+                     backgroundColor: 'hsl(var(--muted))',
+                  },
+                  pre: {
+                     color: 'hsl(var(--muted-foreground))',
+                     backgroundColor: 'hsl(var(--muted))',
+                  },
+                  blockquote: {
+                     color: 'hsl(var(--muted-foreground))',
+                     borderLeftColor: 'hsl(var(--border))',
+                  },
+               }
+            }
+          }),
   	}
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+      require("tailwindcss-animate"),
+      require('@tailwindcss/typography'), // Add typography plugin
+    ],
 } satisfies Config;
