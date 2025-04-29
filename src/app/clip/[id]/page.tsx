@@ -64,12 +64,38 @@ export default function SharedClipPage() {
   }, [collectionId]);
 
 
-  const handleCopyToClipboard = (url: string) => {
+ const handleCopyToClipboard = (url: string) => {
+    // Check if clipboard API is available
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      console.error('Clipboard API (writeText) not available.');
+      toast({ title: 'Error', description: 'Cannot copy URL: Clipboard API not supported.', variant: 'destructive' });
+      return;
+    }
+
+    // Check for secure context (HTTPS), required by clipboard API except for localhost
+    if (typeof window !== 'undefined' && !window.isSecureContext && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      console.warn('Clipboard API requires a secure context (HTTPS).');
+      toast({ title: 'Warning', description: 'Copying to clipboard requires a secure connection (HTTPS).', variant: 'destructive' });
+      // Optionally provide instructions to copy manually
+      // Consider not proceeding or showing a manual copy prompt
+    }
+
     navigator.clipboard.writeText(url).then(() => {
       toast({ title: 'URL Copied!', description: 'Link copied to clipboard.' });
     }).catch(err => {
       console.error('Failed to copy URL: ', err);
-      toast({ title: 'Error', description: 'Could not copy URL.', variant: 'destructive' });
+      let description = 'Could not copy URL.';
+      // Try to provide more specific feedback based on the error
+      if (err instanceof DOMException) {
+        if (err.name === 'NotAllowedError') {
+          description = 'Clipboard write permission denied. Please grant permission in your browser or copy manually.';
+        } else if (err.message.includes('Permissions Policy')) {
+          description = 'Clipboard access blocked by browser policy. Please copy manually.';
+        } else if (err.message.includes('secure context')) {
+          description = 'Copying to clipboard requires a secure connection (HTTPS).';
+        }
+      }
+      toast({ title: 'Error', description: description, variant: 'destructive' });
     });
   };
 
