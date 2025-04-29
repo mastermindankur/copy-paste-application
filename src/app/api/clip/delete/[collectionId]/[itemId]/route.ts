@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import { redis } from '@/lib/redis';
+import { getRedisClient, redisInitializationError } from '@/lib/redis';
 import type { SharedClipCollection } from '@/lib/types';
 
 interface Params {
@@ -11,20 +11,25 @@ interface Params {
 export async function DELETE(request: Request, { params }: { params: Params }) {
   const { collectionId, itemId } = params;
 
+  if (redisInitializationError) {
+      console.error('API Error: Redis client not available.', redisInitializationError);
+      return NextResponse.json(
+          { error: 'Server configuration error', details: redisInitializationError },
+          { status: 500 }
+      );
+  }
+
   if (!collectionId || !itemId) {
     return NextResponse.json({ error: 'Collection ID and Item ID are required' }, { status: 400 });
   }
 
   try {
+    const redis = getRedisClient();
     const collectionKey = `clip:${collectionId}`;
 
-    // Use a transaction to ensure atomicity
-    const multi = redis.multi();
-    multi.get<SharedClipCollection | null>(collectionKey); // Get current collection
-
-    const results = await multi.exec<[SharedClipCollection | null]>();
-    const currentCollection = results[0];
-
+    // Similar atomicity considerations as the 'add' endpoint apply here.
+    // Get/set approach:
+    const currentCollection = await redis.get<SharedClipCollection | null>(collectionKey);
 
     if (!currentCollection) {
       return NextResponse.json({ error: 'Collection not found' }, { status: 404 });
@@ -33,14 +38,13 @@ export async function DELETE(request: Request, { params }: { params: Params }) {
     const itemIndex = currentCollection.items.findIndex(item => item.id === itemId);
 
     if (itemIndex === -1) {
-      return NextResponse.json({ error: 'Item not found in collection' }, { status: 404 });
+      // Item already deleted or never existed, consider success or 404 based on desired behavior
+      return NextResponse.json({ message: 'Item not found or already deleted' }, { status: 404 });
+      // return NextResponse.json({ message: 'Item already deleted' }, { status: 200 });
     }
 
     // Remove the item from the array
-    const updatedItems = [
-        ...currentCollection.items.slice(0, itemIndex),
-        ...currentCollection.items.slice(itemIndex + 1)
-    ];
+    const updatedItems = currentCollection.items.filter(item => item.id !== itemId);
 
 
     const updatedCollection: SharedClipCollection = {
@@ -48,21 +52,23 @@ export async function DELETE(request: Request, { params }: { params: Params }) {
       items: updatedItems,
     };
 
-    // Set the updated collection back into Redis
-    await redis.set(collectionKey, JSON.stringify(updatedCollection));
+     // Get current TTL to preserve it
+    const currentTTL = await redis.ttl(collectionKey);
+    const options = currentTTL > 0 ? { ex: currentTTL } : {};
 
-     // Optional: Refresh expiration on modification
-    // const expirationInSeconds = 7 * 24 * 60 * 60; // 7 days
-    // await redis.expire(collectionKey, expirationInSeconds);
+    // Set the updated collection back into Redis, preserving TTL
+    await redis.set(collectionKey, JSON.stringify(updatedCollection), options);
+
 
     return NextResponse.json({ message: 'Item deleted successfully' }, { status: 200 });
 
   } catch (error) {
     console.error(`Failed to delete item ${itemId} from collection ${collectionId}:`, error);
      const errorDetails = error instanceof Error ? error.message : 'An unknown error occurred.';
+     const status = errorDetails.includes('Redis client failed to initialize') ? 500 : 500;
     return NextResponse.json(
         { error: 'Failed to delete item', details: errorDetails },
-        { status: 500 }
+        { status: status }
     );
   }
 }

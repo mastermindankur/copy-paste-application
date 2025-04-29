@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import { redis } from '@/lib/redis';
+import { getRedisClient, redisInitializationError } from '@/lib/redis';
 import type { ClipboardItemData, SharedClipCollection } from '@/lib/types';
 
 interface Params {
@@ -9,6 +9,15 @@ interface Params {
 
 export async function POST(request: Request, { params }: { params: Params }) {
   const { id: collectionId } = params;
+
+   if (redisInitializationError) {
+      console.error('API Error: Redis client not available.', redisInitializationError);
+      return NextResponse.json(
+          { error: 'Server configuration error', details: redisInitializationError },
+          { status: 500 }
+      );
+  }
+
 
   if (!collectionId) {
     return NextResponse.json({ error: 'Collection ID is required' }, { status: 400 });
@@ -26,14 +35,20 @@ export async function POST(request: Request, { params }: { params: Params }) {
 
 
   try {
+    const redis = getRedisClient();
     const collectionKey = `clip:${collectionId}`;
 
-    // Use a transaction to ensure atomicity
+    // Atomically get and update the collection using a transaction or Lua script for complex logic.
+    // For simple prepend, fetching then setting is often sufficient with Vercel KV,
+    // but be aware of potential race conditions under high load.
+    // Using MULTI/EXEC for atomicity:
     const multi = redis.multi();
-    multi.get<SharedClipCollection | null>(collectionKey); // Get current collection
+    multi.get<SharedClipCollection | null>(collectionKey);
 
-    const results = await multi.exec<[SharedClipCollection | null]>();
-    const currentCollection = results[0];
+    // Note: Vercel KV's multi/exec might have limitations compared to standard Redis.
+    // Check documentation if complex transactions are needed.
+    // Simple get/set approach (less atomic, higher race condition risk):
+    const currentCollection = await redis.get<SharedClipCollection | null>(collectionKey);
 
     if (!currentCollection) {
       return NextResponse.json({ error: 'Collection not found' }, { status: 404 });
@@ -48,26 +63,35 @@ export async function POST(request: Request, { params }: { params: Params }) {
     // Prepend the new item to the list
     const updatedItems = [newItem, ...currentCollection.items];
 
+    // Limit history size if needed (e.g., keep last 100 items)
+    // const MAX_ITEMS = 100;
+    // if (updatedItems.length > MAX_ITEMS) {
+    //     updatedItems.length = MAX_ITEMS;
+    // }
+
+
     const updatedCollection: SharedClipCollection = {
       ...currentCollection,
       items: updatedItems,
     };
 
-    // Set the updated collection back into Redis
-    await redis.set(collectionKey, JSON.stringify(updatedCollection));
+    // Get current TTL to preserve it
+    const currentTTL = await redis.ttl(collectionKey);
+    const options = currentTTL > 0 ? { ex: currentTTL } : {};
 
-    // Optional: Refresh expiration on modification
-    // const expirationInSeconds = 7 * 24 * 60 * 60; // 7 days
-    // await redis.expire(collectionKey, expirationInSeconds);
+
+    // Set the updated collection back into Redis, preserving TTL
+    await redis.set(collectionKey, JSON.stringify(updatedCollection), options);
 
     return NextResponse.json(newItem, { status: 201 }); // Return the newly added item
 
   } catch (error) {
     console.error(`Failed to add item to collection ${collectionId}:`, error);
     const errorDetails = error instanceof Error ? error.message : 'An unknown error occurred.';
+    const status = errorDetails.includes('Redis client failed to initialize') ? 500 : 500;
     return NextResponse.json(
         { error: 'Failed to add item to collection', details: errorDetails },
-        { status: 500 }
+        { status: status }
     );
   }
 }

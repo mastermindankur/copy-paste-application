@@ -1,53 +1,62 @@
 
 import { createClient, VercelKV } from '@vercel/kv';
 
-// Ensure REDIS_URL environment variable is set
-const redisUrl = process.env.REDIS_URL;
-if (!redisUrl) {
-  console.error('FATAL ERROR: Missing environment variable REDIS_URL for Vercel KV.');
-  // In a real application, you might want to prevent the app from starting
-  // or throw a more specific error that can be caught during initialization.
-  // For now, we'll let it potentially fail later when used.
-  // throw new Error('Missing environment variable REDIS_URL');
-} else if (!redisUrl.startsWith('redis://')) {
-   console.warn(
-     `Warning: REDIS_URL does not start with 'redis://'. Vercel KV expects this format. URL: ${redisUrl}`
-   );
-}
+// Ensure Vercel KV environment variables are set
+const kvRestApiUrl = process.env.KV_REST_API_URL;
+const kvRestApiToken = process.env.KV_REST_API_TOKEN;
 
-let redisInstance: VercelKV;
+let redisInstance: VercelKV | null = null;
+let initializationError: string | null = null;
 
-try {
-  redisInstance = createClient({
-    url: redisUrl!, // Use non-null assertion as we check above, but handle potential runtime errors
-  });
+if (!kvRestApiUrl || !kvRestApiToken) {
+  initializationError = 'Missing Vercel KV environment variables. Please set KV_REST_API_URL and KV_REST_API_TOKEN in your .env file.';
+  console.error(`FATAL ERROR: ${initializationError}`);
+} else {
+  // Basic check for URL format (should start with https for Vercel KV)
+  if (!kvRestApiUrl.startsWith('https://')) {
+      initializationError = `Invalid KV_REST_API_URL format. URL must start with 'https://'. Received: ${kvRestApiUrl}`;
+      console.error(`FATAL ERROR: ${initializationError}`);
+  } else {
+      try {
+        redisInstance = createClient({
+          url: kvRestApiUrl,
+          token: kvRestApiToken,
+        });
 
-  // Optional: Perform an initial check to see if connection works.
-  // This is async, so it won't block initialization, but logs issues.
-  redisInstance.ping()
-    .then(response => {
-      if (response === 'PONG') {
-        console.log('Successfully connected to Vercel KV (Redis).');
-      } else {
-        // This case might not happen with Vercel KV's ping, but good practice
-        console.warn('Vercel KV ping response was not PONG. Check connection status.', response);
+        // Optional: Perform an initial check to see if connection works.
+        // This is async, so it won't block initialization, but logs issues.
+        redisInstance.ping()
+          .then(response => {
+            if (response === 'PONG') {
+              console.log('Successfully connected to Vercel KV.');
+            } else {
+              console.warn('Vercel KV ping response was not PONG. Check connection status.', response);
+            }
+          })
+          .catch(error => {
+            console.error('Initial connection test to Vercel KV failed:', error);
+            // Set the error here as well in case the initial sync creation didn't throw
+            if (!initializationError) {
+                initializationError = `Initial connection test to Vercel KV failed: ${error instanceof Error ? error.message : String(error)}`;
+            }
+          });
+
+      } catch (error) {
+         initializationError = `Failed to create Vercel KV client instance: ${error instanceof Error ? error.message : String(error)}`;
+         console.error(`FATAL ERROR: ${initializationError}`);
+         // Throw error during initialization if client creation fails catastrophically
+         throw new Error(initializationError);
       }
-    })
-    .catch(error => {
-      console.error('Initial connection test to Vercel KV failed:', error);
-      // Depending on your app's requirements, you might want to handle this
-      // more critically, e.g., set an application status flag.
-    });
-
-} catch (error) {
-   console.error('FATAL ERROR: Failed to create Vercel KV client instance:', error);
-   // Throw error during initialization if client creation fails catastrophically
-   // (e.g., due to fundamentally invalid URL format caught by the client library itself)
-    if (error instanceof Error && error.message.includes('invalid URL')) {
-        throw new Error(`Failed to create Redis client due to invalid URL: ${redisUrl}. Ensure it starts with redis://`);
-    }
-   throw error; // Re-throw other unexpected errors
+  }
 }
 
+// Export a function to get the client instance or throw if initialization failed
+export const getRedisClient = (): VercelKV => {
+  if (initializationError || !redisInstance) {
+    throw new Error(`Redis client failed to initialize: ${initializationError || 'Unknown error'}`);
+  }
+  return redisInstance;
+};
 
-export const redis = redisInstance;
+// Optional: Export the error for checking elsewhere if needed
+export const redisInitializationError = initializationError;
