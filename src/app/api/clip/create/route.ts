@@ -17,7 +17,8 @@ const getRuntimeBaseUrl = (): string | null => {
   // 1. Vercel System Environment Variable (Preferred for Vercel deployments)
   const vercelUrl = process.env.NEXT_PUBLIC_VERCEL_URL;
   if (vercelUrl) {
-    url = vercelUrl.startsWith('https://') ? vercelUrl : `https://${vercelUrl}`;
+    // Vercel URL might already include protocol, handle both cases
+    url = vercelUrl.startsWith('http') ? vercelUrl : `https://${vercelUrl}`;
     source = 'Vercel (NEXT_PUBLIC_VERCEL_URL)';
     console.log(`Create API Runtime: Using ${source}: ${url}`);
     return url;
@@ -31,6 +32,14 @@ const getRuntimeBaseUrl = (): string | null => {
         url = explicitBaseUrl;
         source = 'Explicit (NEXT_PUBLIC_BASE_URL)';
         console.log(`Create API Runtime: Using ${source}: ${url}`);
+
+        // --- WARNING FOR POTENTIAL MISCONFIGURATION ---
+        // Check if the explicit URL looks like localhost in a production environment
+        if (process.env.NODE_ENV === 'production' && (url.includes('localhost') || url.includes('127.0.0.1'))) {
+            console.warn(`Create API Runtime WARNING: Using localhost URL (${url}) from NEXT_PUBLIC_BASE_URL in production environment. This is likely incorrect. Ensure NEXT_PUBLIC_BASE_URL is set to your public domain in your production environment variables.`);
+        }
+        // --- END WARNING ---
+
         return url;
     } else {
         console.error(`Create API Runtime Error: Invalid NEXT_PUBLIC_BASE_URL format: ${explicitBaseUrl}. Must start with http:// or https://.`);
