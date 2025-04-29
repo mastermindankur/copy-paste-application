@@ -33,7 +33,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   // Memoize the user object to prevent unnecessary reference changes
   const memoizedUser = useMemo(() => user, [user]);
 
-  // Memoize the context value
+  // Memoize the context value itself
   const contextValue = useMemo(() => ({
       user: memoizedUser,
       loading
