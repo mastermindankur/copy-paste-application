@@ -27,15 +27,17 @@ A simple application to copy paste content easily across multiple devices includ
     ```
 
 3.  **Set up Environment Variables:**
-    *   Copy the `.env.example` file to `.env`.
-    *   **Provide your Redis connection URL in the `REDIS_URL` variable.** You can use services like [Redis Cloud](https://redis.com/redis-enterprise-cloud/overview/), [Upstash](https://upstash.com/), or host your own Redis instance. If using Vercel KV, obtain the `REDIS_URL`-compatible connection string from the Vercel dashboard (Storage tab -> KV -> Connect -> Show Secrets -> `.env.local` tab -> `KV_URL`).
-    *   **`NEXT_PUBLIC_BASE_URL` Configuration (Important!):**
-        *   **For Local Development:** To ensure generated share URLs use `http://localhost:9002` (or your configured port) instead of just `/clip/...`, you **must** set `NEXT_PUBLIC_BASE_URL` in your `.env` file:
+    *   Copy the `.env.example` file to `.env` (if it doesn't exist).
+    *   **Provide your Redis connection URL in the `REDIS_URL` variable.** You can use services like [Redis Cloud](https://redis.com/redis-enterprise-cloud/overview/), [Upstash](https://upstash.com/), or host your own Redis instance. If using Vercel KV, obtain the `KV_URL` (Redis-compatible connection string) from the Vercel dashboard (Storage tab -> KV -> Connect -> Show Secrets -> `.env.local` tab -> `KV_URL`). Example format: `rediss://:...` or `redis://...`.
+    *   **`NEXT_PUBLIC_BASE_URL` Configuration (Important for Share URLs!):** This variable determines the base URL used when generating shareable links (`/clip/...`).
+        *   **Local Development:** Set `NEXT_PUBLIC_BASE_URL` in your `.env` file to your local development address (e.g., `http://localhost:9002`) to ensure share URLs work correctly locally:
             ```dotenv
+            # .env
+            REDIS_URL=your_redis_connection_string
             NEXT_PUBLIC_BASE_URL=http://localhost:9002
             ```
-        *   **For Vercel Deployment:** This is usually detected automatically.
-        *   **For Other Hosting:** Set `NEXT_PUBLIC_BASE_URL` to your application's public domain (e.g., `NEXT_PUBLIC_BASE_URL=https://your-app-domain.com`).
+        *   **Vercel Deployment:** Vercel automatically detects the deployment URL via the `VERCEL_URL` environment variable. You usually **do not** need to set `NEXT_PUBLIC_BASE_URL` manually in Vercel's environment variable settings.
+        *   **Other Hosting Providers (Netlify, Docker, etc.):** You **must** explicitly set the `NEXT_PUBLIC_BASE_URL` environment variable in your hosting provider's settings to your application's public domain (e.g., `https://your-app-domain.com`). If you don't set this, generated share URLs will incorrectly point to `http://localhost:9002`.
 
 4.  **Run the development server:**
     ```bash
@@ -63,16 +65,24 @@ Open [http://localhost:9002](http://localhost:9002) (or your configured port) wi
 
 This application is ready to be deployed on platforms like Vercel, Netlify, or any Node.js hosting provider.
 
-*   **Environment Variables:** Ensure `REDIS_URL` is set in your hosting environment. `NEXT_PUBLIC_BASE_URL` should also be set correctly for your deployment domain if not automatically detected (e.g., by Vercel).
+*   **Environment Variables:**
+    *   Ensure `REDIS_URL` is set in your hosting environment with the correct connection string for your Redis provider.
+    *   Ensure `NEXT_PUBLIC_BASE_URL` is correctly configured for your hosting environment as described in "Getting Started" to ensure share URLs point to the correct domain.
 
 ## Troubleshooting
 
-*   **Connection Errors:** Double-check your `REDIS_URL` in the `.env` file or environment variables. Ensure the Redis server/service is running and accessible. Check for firewall issues. Make sure the URL format is correct (usually starts with `redis://` or `rediss://`).
-*   **URL Generation:**
-    *   **Localhost URLs:** If shared URLs are generated as `http://localhost:9002/...` during local development, ensure you have set `NEXT_PUBLIC_BASE_URL=http://localhost:9002` in your `.env` file as described in "Getting Started".
-    *   **Incorrect Domain on Deployment:** If shared URLs point to `localhost` or an incorrect domain *after deployment*, verify the `NEXT_PUBLIC_BASE_URL` environment variable is correctly set in your hosting environment's settings. Vercel usually handles this automatically via `VERCEL_URL`, but other platforms might require explicit configuration.
-*   Ensure all dependencies are installed correctly (`npm install`).
-*   Make sure the development server is running (`npm run dev`).
-*   Check the browser's developer console (usually F12) for client-side errors.
-*   Check the terminal where `npm run dev` is running for server-side errors.
+*   **Redis Connection Errors:**
+    *   Double-check your `REDIS_URL` in the `.env` file or environment variables.
+    *   Ensure the Redis server/service is running and accessible from your application environment.
+    *   Check for firewall issues between your app and the Redis host.
+    *   Verify the URL format is correct (usually starts with `redis://` or `rediss://`).
+    *   Confirm authentication details (password, username if required) are correct within the URL.
+*   **Share URL Generation Issues:**
+    *   **URLs point to `localhost` on deployed app:** This almost always means `NEXT_PUBLIC_BASE_URL` is not set correctly in your hosting environment variables. Vercel usually handles this automatically, but other platforms (Netlify, Docker, custom servers) require you to set it explicitly to your public domain (e.g., `https://your-app.com`).
+    *   **URLs point to `localhost` during local development:** Make sure you have `NEXT_PUBLIC_BASE_URL=http://localhost:9002` (or your port) in your local `.env` file.
+*   **General Issues:**
+    *   Ensure all dependencies are installed (`npm install`).
+    *   Make sure the development server is running (`npm run dev`) or the production build is correctly deployed.
+    *   Check the browser's developer console (usually F12) for client-side errors.
+    *   Check the terminal/logs where your application is running for server-side errors (especially API route errors).
 ```
