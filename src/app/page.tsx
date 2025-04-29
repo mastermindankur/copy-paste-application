@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Share, Copy } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip components
 
 export default function Home() {
   const router = useRouter();
@@ -18,7 +19,7 @@ export default function Home() {
   // Log the base URL available on the client side
   useEffect(() => {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-    console.log('Client-side NEXT_PUBLIC_BASE_URL:', baseUrl);
+    // console.log('Client-side NEXT_PUBLIC_BASE_URL:', baseUrl); // Keep console logs minimal in production
     setClientBaseUrl(baseUrl);
   }, []);
 
@@ -62,8 +63,8 @@ export default function Home() {
       console.log(`Shared collection created. Received URL: ${url}`); // Log the URL received from API
       setNewCollectionUrl(url);
       toast({
-          title: 'Shared Clipboard Created!',
-          description: 'You can now share this URL.',
+          title: 'Shared Clipboard Ready!',
+          description: 'A unique URL has been created. Copy and share it to sync items across devices.',
       });
       // Optional: redirect immediately:
       // router.push(url); // Use the received URL for redirection
@@ -72,8 +73,8 @@ export default function Home() {
         console.error("Error creating shared collection:", error);
         const message = error instanceof Error ? error.message : 'An unexpected error occurred.';
         toast({
-            title: 'Error',
-            description: message,
+            title: 'Creation Failed',
+            description: `Could not create shared clipboard: ${message}`,
             variant: 'destructive',
         });
     } finally {
@@ -82,104 +83,142 @@ export default function Home() {
   };
 
   const handleCopyToClipboard = (url: string) => {
+     // Check if clipboard API is available
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      console.error('Clipboard API (writeText) not available.');
+      toast({ title: 'Error', description: 'Cannot copy URL: Clipboard API not supported or unavailable.', variant: 'destructive' });
+      return;
+    }
+
+     // Check for secure context (HTTPS), required by clipboard API except for localhost
+    if (typeof window !== 'undefined' && !window.isSecureContext && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      console.warn('Clipboard API requires a secure context (HTTPS).');
+      toast({ title: 'Warning', description: 'Copying to clipboard requires a secure connection (HTTPS).', variant: 'default' });
+      // Optionally provide instructions to copy manually
+      // Consider not proceeding or showing a manual copy prompt
+    }
+
+
     navigator.clipboard.writeText(url).then(() => {
-      toast({ title: 'URL Copied!', description: 'Link copied to clipboard.' });
+      toast({ title: 'URL Copied!', description: 'Share link copied to clipboard.' });
     }).catch(err => {
       console.error('Failed to copy URL: ', err);
-      toast({ title: 'Error', description: 'Could not copy URL.', variant: 'destructive' });
+      let description = 'Could not copy URL.';
+       if (err instanceof DOMException) {
+         if (err.name === 'NotAllowedError') {
+           description = 'Clipboard write permission denied. Please grant permission or copy manually.';
+         } else if (err.message.includes('Permissions Policy')) {
+           description = 'Clipboard access blocked by browser policy. Please copy manually.';
+         } else if (err.message.includes('secure context')) {
+           description = 'Copying to clipboard requires a secure connection (HTTPS).';
+         }
+       }
+      toast({ title: 'Copy Failed', description: description, variant: 'destructive' });
     });
   };
 
 
   return (
-    <div className="flex flex-col items-center gap-8">
-      {/* Header Section */}
-      <div className="text-center mb-6">
-        <h1 className="text-3xl font-semibold mb-2">
-          CrossClip
-        </h1>
-        <p className="text-muted-foreground max-w-md mx-auto">
-          Your personal clipboard history. Add items locally or create a shared clipboard to sync across devices via a unique URL.
-        </p>
-         {/* Display client-side base URL for debugging */}
-         {process.env.NODE_ENV === 'development' && clientBaseUrl && (
-             <p className="text-xs mt-2 text-gray-500">(Debug: Client Base URL: {clientBaseUrl})</p>
-         )}
+    <TooltipProvider> {/* Wrap the relevant part or whole page with TooltipProvider */}
+      <div className="flex flex-col items-center gap-8">
+        {/* Header Section */}
+        <div className="text-center mb-6">
+          <h1 className="text-3xl font-semibold mb-2">
+            CrossClip
+          </h1>
+          <p className="text-muted-foreground max-w-md mx-auto">
+            Your personal clipboard history. Add items locally or create a <span className="font-semibold">shared clipboard</span> to sync across devices via a unique URL.
+          </p>
+           {/* Display client-side base URL for debugging */}
+           {/*
+           {process.env.NODE_ENV === 'development' && clientBaseUrl && (
+               <p className="text-xs mt-2 text-gray-500">(Debug: Client Base URL: {clientBaseUrl})</p>
+           )}
+           */}
+        </div>
+
+        {/* Shared Collection Section */}
+          <Card className="w-full max-w-3xl shadow-md">
+              <CardHeader>
+                  <CardTitle>Shared Clipboard</CardTitle>
+                  <CardDescription>
+                      Click below to generate a unique, shareable URL. Anyone with the URL can view and add items to this clipboard for 7 days.
+                  </CardDescription>
+              </CardHeader>
+              <CardContent>
+                   {newCollectionUrl ? (
+                      <div className="space-y-3">
+                          <p className="text-sm font-medium text-center">Your shared clipboard is ready!</p>
+                          <div className="flex items-center gap-2">
+                              <input
+                                  type="text"
+                                  value={newCollectionUrl}
+                                  readOnly
+                                  className="flex-grow p-2 border rounded-md bg-muted text-muted-foreground text-sm"
+                                  aria-label="Shared Clipboard URL"
+                                  onFocus={(e) => e.target.select()}
+                              />
+                               <Tooltip>
+                                 <TooltipTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={() => handleCopyToClipboard(newCollectionUrl)}
+                                    >
+                                        <Copy className="h-4 w-4" />
+                                        <span className="sr-only">Copy Share URL</span>
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Copy Share URL</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                          </div>
+                           <p className="text-xs text-muted-foreground text-center">Copy this URL and open it on other devices to sync.</p>
+                          <Button onClick={() => router.push(newCollectionUrl)} className="w-full">
+                              Go to Shared Clipboard
+                          </Button>
+                      </div>
+                  ) : (
+                      <p className="text-sm text-muted-foreground text-center">
+                          No shared clipboard active. Create one to start syncing.
+                      </p>
+                  )}
+              </CardContent>
+              <CardFooter>
+                   <Button
+                      onClick={handleCreateSharedCollection}
+                      disabled={isCreating}
+                      className="w-full"
+                  >
+                      {isCreating ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                          <Share className="mr-2 h-4 w-4" />
+                      )}
+                      {isCreating ? 'Creating Link...' : (newCollectionUrl ? 'Create Another Shared Link' : 'Create New Shared Clipboard Link')}
+                  </Button>
+              </CardFooter>
+          </Card>
+
+
+        {/* Local Clipboard Section */}
+        <div className="w-full max-w-3xl mt-8">
+           <Card className="shadow-md">
+               <CardHeader>
+                   <CardTitle>Local Clipboard</CardTitle>
+                   <CardDescription>
+                       Items added here are stored <span className="font-semibold">only in your current browser session</span> and are not shared or synced automatically. Use the "Shared Clipboard" feature above for cross-device syncing.
+                   </CardDescription>
+               </CardHeader>
+               <CardContent>
+                   {/* collectionId={null} indicates local mode */}
+                   <ClipboardManager collectionId={null} />
+               </CardContent>
+           </Card>
+        </div>
+
       </div>
-
-      {/* Shared Collection Section */}
-        <Card className="w-full max-w-3xl shadow-md">
-            <CardHeader>
-                <CardTitle>Shared Clipboard</CardTitle>
-                <CardDescription>
-                    Create a unique URL to access your clipboard items from anywhere. Items added here are synced.
-                </CardDescription>
-            </CardHeader>
-            <CardContent>
-                 {newCollectionUrl ? (
-                    <div className="space-y-3">
-                        <p className="text-sm font-medium">Your shared clipboard URL:</p>
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="text"
-                                value={newCollectionUrl}
-                                readOnly
-                                className="flex-grow p-2 border rounded-md bg-muted text-muted-foreground text-sm"
-                                aria-label="Shared Clipboard URL"
-                                onFocus={(e) => e.target.select()}
-                            />
-                            <Button
-                                variant="outline"
-                                size="icon"
-                                title="Copy URL"
-                                onClick={() => handleCopyToClipboard(newCollectionUrl)}
-                            >
-                                <Copy className="h-4 w-4" />
-                                <span className="sr-only">Copy URL</span>
-                            </Button>
-                        </div>
-                        <Button onClick={() => router.push(newCollectionUrl)} className="w-full">
-                            Go to Shared Clipboard
-                        </Button>
-                    </div>
-                ) : (
-                    <p className="text-sm text-muted-foreground">
-                        Click the button below to generate a new shared clipboard URL.
-                    </p>
-                )}
-            </CardContent>
-            <CardFooter>
-                 <Button
-                    onClick={handleCreateSharedCollection}
-                    disabled={isCreating}
-                    className="w-full"
-                >
-                    {isCreating ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                        <Share className="mr-2 h-4 w-4" />
-                    )}
-                    {isCreating ? 'Creating...' : 'Create New Shared Clipboard'}
-                </Button>
-            </CardFooter>
-        </Card>
-
-
-      {/* Local Clipboard Section */}
-      <div className="w-full max-w-3xl mt-8">
-         <Card className="shadow-md">
-             <CardHeader>
-                 <CardTitle>Local Clipboard</CardTitle>
-                 <CardDescription>
-                     Items added here are stored only in your current browser session and are not shared.
-                 </CardDescription>
-             </CardHeader>
-             <CardContent>
-                 <ClipboardManager collectionId={null} />
-             </CardContent>
-         </Card>
-      </div>
-
-    </div>
+     </TooltipProvider>
   );
 }
