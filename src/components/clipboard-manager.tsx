@@ -1,202 +1,99 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useAuth } from '@/lib/firebase/provider';
-import { db, storage, auth } from '@/lib/firebase/config'; // Import auth here as well
-import {
-  collection,
-  addDoc,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  serverTimestamp,
-  deleteDoc,
-  doc,
-  Timestamp,
-  FirestoreError, // Import FirestoreError type
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject, StorageError } from 'firebase/storage'; // Import StorageError type
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
+// import { Input } from '@/components/ui/input'; // File input removed for now
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from '@/hooks/use-toast';
-import { Clipboard, FileText, Image as ImageIcon, Trash2, Upload, Copy, Download, Link as LinkIcon, AlertCircle } from 'lucide-react';
+import { Clipboard, FileText, Image as ImageIcon, Trash2, Upload, Copy, Link as LinkIcon } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import Image from 'next/image';
-import { Progress } from './ui/progress';
-import { Skeleton } from './ui/skeleton';
+// import Image from 'next/image'; // Image component removed
+// import { Progress } from './ui/progress'; // Progress component removed
+import { Skeleton } from './ui/skeleton'; // Keep Skeleton for initial loading state
 
-interface ClipboardItem {
+// Define a simpler local clipboard item structure
+interface LocalClipboardItem {
   id: string;
-  userId: string;
-  type: 'text' | 'image' | 'file' | 'url';
-  content: string; // Text content or file URL
-  fileName?: string; // Original file name
-  fileType?: string; // MIME type
-  createdAt: Timestamp;
-  storagePath?: string; // Path in Firebase Storage for files/images
+  type: 'text' | 'url';
+  content: string; // Text content or URL
+  createdAt: Date;
 }
 
 export default function ClipboardManager() {
-  const { user, loading: authLoading, initializationError } = useAuth(); // Get initializationError from context
   const [textInput, setTextInput] = useState('');
-  const [fileInput, setFileInput] = useState<File | null>(null);
-  const [clipboardItems, setClipboardItems] = useState<ClipboardItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // Tracks loading of clipboard items specifically
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  // const [fileInput, setFileInput] = useState<File | null>(null); // Removed file state
+  const [clipboardItems, setClipboardItems] = useState<LocalClipboardItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false); // Simplified loading state
+  // const [uploadProgress, setUploadProgress] = useState<number | null>(null); // Removed upload progress
+  const [isProcessing, setIsProcessing] = useState(false); // Generic processing state
 
-  // Disable interactions if Firebase isn't initialized or loading auth
-  const isDisabled = authLoading || !!initializationError || isUploading;
+  // Load items from local storage on mount (optional persistence)
+  // useEffect(() => {
+  //   const storedItems = localStorage.getItem('crossclip_items');
+  //   if (storedItems) {
+  //     try {
+  //       const parsedItems = JSON.parse(storedItems).map((item: any) => ({
+  //           ...item,
+  //           createdAt: new Date(item.createdAt) // Ensure date is parsed correctly
+  //       }));
+  //       setClipboardItems(parsedItems);
+  //     } catch (error) {
+  //       console.error("Failed to load items from local storage:", error);
+  //       localStorage.removeItem('crossclip_items'); // Clear corrupted data
+  //     }
+  //   }
+  //   setIsLoading(false); // Finish loading after attempting to load from storage
+  // }, []);
 
-  // Memoize itemsCollectionRef only if db is available
-  const itemsCollectionRef = useMemo(() => {
-      if (!db) return null; // Return null if db is not initialized
-      return collection(db, 'clipboardItems');
-  }, []); // db instance is stable, so no dependency needed unless config changes
-
-  const fetchClipboardItems = useCallback(() => {
-      const currentUserId = user?.uid;
-
-      // Exit if Firebase isn't ready, no user, or collection ref is null
-      if (initializationError || !db || !itemsCollectionRef || !currentUserId) {
-          setClipboardItems([]);
-          setIsLoading(false);
-          return () => {}; // Return an empty cleanup function
-      }
-
-      setIsLoading(true);
-      const q = query(
-          itemsCollectionRef,
-          where('userId', '==', currentUserId),
-          orderBy('createdAt', 'desc')
-      );
-
-      const unsubscribe = onSnapshot(
-          q,
-          (querySnapshot) => {
-              const items = querySnapshot.docs.map((doc) => ({
-                  id: doc.id,
-                  ...doc.data(),
-              })) as ClipboardItem[];
-              setClipboardItems(items);
-              setIsLoading(false);
-          },
-          (error: FirestoreError) => { // Type the error
-              console.error('Error fetching clipboard items:', error);
-              toast({
-                  title: 'Error',
-                  description: `Could not fetch clipboard items: ${error.message}`,
-                  variant: 'destructive',
-              });
-              setIsLoading(false);
-          }
-      );
-
-      return unsubscribe;
-
-  }, [user?.uid, itemsCollectionRef, initializationError, db]); // Add db and initializationError to dependencies
-
-  useEffect(() => {
-    // Only fetch if Firebase is initialized and auth is not loading
-    if (!initializationError && !authLoading) {
-      const unsubscribe = fetchClipboardItems();
-      return () => {
-        if (unsubscribe) {
-          unsubscribe();
-        }
-      };
-    } else {
-       // Ensure loading state is false if we can't fetch
-       setIsLoading(false);
-       setClipboardItems([]); // Clear items if Firebase isn't ready
-    }
-  }, [fetchClipboardItems, initializationError, authLoading]);
+  // // Save items to local storage whenever they change (optional persistence)
+  // useEffect(() => {
+  //   // Debounce or check if loading to prevent excessive writes might be good here
+  //   localStorage.setItem('crossclip_items', JSON.stringify(clipboardItems));
+  // }, [clipboardItems]);
 
 
   const isValidUrl = (string: string): boolean => {
     // Basic check, improve if needed
     return string.startsWith('http://') || string.startsWith('https://');
-    // try { // More robust check, but might allow non-http URLs
-    //   new URL(string);
-    //   return true;
-    // } catch (_) {
-    //   return false;
-    // }
   }
 
   const handleAddItem = async () => {
-    // Ensure Firebase is ready and user is logged in
-    if (initializationError || !db || !storage || !itemsCollectionRef || !user) {
-      toast({ title: 'Error', description: 'Cannot add item. Firebase not available or user not signed in.', variant: 'destructive' });
-      return;
-    }
+    if (isProcessing) return; // Prevent multiple adds
 
     if (textInput.trim()) {
-        const type = isValidUrl(textInput) ? 'url' : 'text';
-        try {
-            await addDoc(itemsCollectionRef, {
-            userId: user.uid,
-            type: type,
-            content: textInput,
-            createdAt: serverTimestamp(),
-            });
-            setTextInput('');
-            toast({ title: 'Success', description: `${type === 'url' ? 'URL' : 'Text'} added to clipboard.` });
-        } catch (error: any) {
-            console.error('Error adding text/URL item:', error);
-            toast({ title: 'Error', description: `Could not add ${type === 'url' ? 'URL' : 'text'} item: ${error.message}`, variant: 'destructive' });
-        }
+      setIsProcessing(true);
+      const type = isValidUrl(textInput) ? 'url' : 'text';
+      const newItem: LocalClipboardItem = {
+        id: crypto.randomUUID(), // Generate a simple unique ID
+        type: type,
+        content: textInput,
+        createdAt: new Date(),
+      };
+
+      // Simulate async operation if needed, or just update state
+      await new Promise(resolve => setTimeout(resolve, 100)); // Simulate delay
+
+      setClipboardItems(prevItems => [newItem, ...prevItems]); // Add to the beginning
+      setTextInput('');
+      toast({ title: 'Success', description: `${type === 'url' ? 'URL' : 'Text'} added locally.` });
+      setIsProcessing(false);
     }
 
-    if (fileInput) {
-      setIsUploading(true);
-      setUploadProgress(0); // Reset progress
-      const fileType = fileInput.type.startsWith('image/') ? 'image' : 'file';
-      const storagePath = `clipboard/${user.uid}/${Date.now()}_${fileInput.name}`;
-      const storageRef = ref(storage, storagePath);
-
-      try {
-        // TODO: Implement progress tracking with uploadBytesResumable if needed
-        // For now, simple upload
-        const snapshot = await uploadBytes(storageRef, fileInput);
-        // Simulate progress for now
-        setUploadProgress(100);
-        const downloadURL = await getDownloadURL(snapshot.ref);
-
-        await addDoc(itemsCollectionRef, {
-          userId: user.uid,
-          type: fileType,
-          content: downloadURL,
-          fileName: fileInput.name,
-          fileType: fileInput.type,
-          storagePath: storagePath,
-          createdAt: serverTimestamp(),
-        });
-
-        setFileInput(null);
-        // Clear the file input visually
-        const fileInputElement = document.getElementById('file-input') as HTMLInputElement;
-        if (fileInputElement) {
-            fileInputElement.value = '';
-        }
-        toast({ title: 'Success', description: `${fileType === 'image' ? 'Image' : 'File'} uploaded.` });
-      } catch (error: any) {
-        console.error(`Error uploading ${fileType}:`, error);
-        toast({ title: 'Error', description: `Could not upload ${fileType}: ${error.message}`, variant: 'destructive' });
-      } finally {
-        setIsUploading(false);
-        setUploadProgress(null);
-      }
-    }
+    // --- File/Image Handling Removed ---
+    // if (fileInput) {
+    //   // ... local handling logic (e.g., read as data URI)
+    //   // This requires more complex state management and potential size limits
+    //   toast({ title: 'Info', description: 'File/Image upload is not yet supported locally.', variant: 'default' });
+    //   setFileInput(null);
+    // }
+    // --- End File/Image Handling Removal ---
   };
 
    const handlePasteFromClipboard = async () => {
-    if (isDisabled) return; // Prevent action if disabled
+    if (isProcessing) return;
     try {
       const clipboardContent = await navigator.clipboard.readText();
       if (clipboardContent) {
@@ -216,31 +113,18 @@ export default function ClipboardManager() {
   };
 
 
-  const handleDeleteItem = async (item: ClipboardItem) => {
-    // Ensure Firebase is ready and user is logged in
-    if (initializationError || !db || !storage || !user) {
-        toast({ title: 'Error', description: 'Cannot delete item. Firebase not available or user not signed in.', variant: 'destructive' });
-        return;
-    }
-
-    try {
-      await deleteDoc(doc(db, 'clipboardItems', item.id));
-
-      // If it's a file or image, delete from storage
-      if ((item.type === 'file' || item.type === 'image') && item.storagePath) {
-        const fileRef = ref(storage, item.storagePath);
-        await deleteObject(fileRef);
-      }
-
-      toast({ title: 'Deleted', description: 'Item removed from clipboard.' });
-    } catch (error: any) { // Catch FirestoreError or StorageError
-      console.error('Error deleting item:', error);
-      toast({ title: 'Error', description: `Could not delete item: ${error.message}`, variant: 'destructive' });
-    }
+  const handleDeleteItem = async (id: string) => {
+     if (isProcessing) return;
+     setIsProcessing(true);
+     // Simulate async operation if needed
+     await new Promise(resolve => setTimeout(resolve, 100)); // Simulate delay
+     setClipboardItems(prevItems => prevItems.filter(item => item.id !== id));
+     toast({ title: 'Deleted', description: 'Item removed locally.' });
+     setIsProcessing(false);
   };
 
   const handleCopyToClipboard = (content: string) => {
-    if (isDisabled) return;
+    if (isProcessing) return;
     navigator.clipboard.writeText(content).then(
       () => {
         toast({ title: 'Copied!', description: 'Content copied to clipboard.' });
@@ -252,21 +136,11 @@ export default function ClipboardManager() {
     );
   };
 
-   const handleDownloadFile = (url: string, filename?: string) => {
-    if (isDisabled) return;
-    const link = document.createElement('a');
-    link.href = url;
-    link.target = "_blank";
-    if (filename) {
-      link.download = filename;
-    }
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast({ title: 'Download Started', description: filename || 'File download initiated.' });
-   };
+   // --- Download File Removed ---
+   // const handleDownloadFile = (url: string, filename?: string) => { ... }
+   // --- End Download File Removal ---
 
-  const renderItemContent = (item: ClipboardItem) => {
+  const renderItemContent = (item: LocalClipboardItem) => {
     switch (item.type) {
       case 'text':
         return <p className="text-sm whitespace-pre-wrap break-words">{item.content}</p>;
@@ -278,45 +152,30 @@ export default function ClipboardManager() {
             {item.content} {/* Display original content */}
           </a>
         );
-      case 'image':
-        return (
-            <div className="relative w-full max-h-60 overflow-hidden rounded-md my-2 flex justify-center items-center bg-muted/20">
-              <Image
-                src={item.content}
-                alt={item.fileName || 'Uploaded image'}
-                width={300}
-                height={200}
-                sizes="(max-width: 640px) 100vw, 300px"
-                style={{ objectFit: 'contain', maxWidth: '100%', height: 'auto' }}
-                className="rounded-md"
-                onError={(e) => console.error("Image load error:", e)} // Add error handler
-              />
-            </div>
-        );
-      case 'file':
-        return (
-          <div className="flex items-center gap-2 text-sm">
-            <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-            <span className="truncate flex-grow min-w-0" title={item.fileName || 'Uploaded file'}>{item.fileName || 'Uploaded file'}</span>
-          </div>
-        );
+        // --- Image/File Cases Removed ---
+      // case 'image':
+      //   return ( ... );
+      // case 'file':
+      //   return ( ... );
+        // --- End Image/File Cases Removal ---
       default:
+        // Should not happen with local items, but good practice
         return <p className="text-sm text-muted-foreground">Unsupported item type</p>;
     }
   };
 
-  const getItemIcon = (type: ClipboardItem['type']) => {
+  const getItemIcon = (type: LocalClipboardItem['type']) => {
      switch (type) {
         case 'text': return <Clipboard className="h-5 w-5"/>;
-        case 'image': return <ImageIcon className="h-5 w-5"/>;
-        case 'file': return <FileText className="h-5 w-5"/>;
+        // case 'image': return <ImageIcon className="h-5 w-5"/>; // Removed
+        // case 'file': return <FileText className="h-5 w-5"/>; // Removed
         case 'url': return <LinkIcon className="h-5 w-5" />;
         default: return <Clipboard className="h-5 w-5"/>;
      }
   }
 
-  // Show skeleton while auth is loading (initial state)
-  if (authLoading) {
+  // Show skeleton briefly on initial load (optional, could be removed if no async loading)
+  if (isLoading) {
     return (
       <div className="w-full max-w-2xl mx-auto">
         <Card>
@@ -325,7 +184,7 @@ export default function ClipboardManager() {
           </CardHeader>
           <CardContent className="space-y-4">
              <Skeleton className="h-20 w-full" />
-             <Skeleton className="h-10 w-full" />
+             {/* <Skeleton className="h-10 w-full" /> File input skeleton removed */}
              <Skeleton className="h-10 w-1/3" />
           </CardContent>
         </Card>
@@ -338,50 +197,13 @@ export default function ClipboardManager() {
     );
   }
 
-  // Show Firebase initialization error if present (and not placeholder warning)
-  if (initializationError && !initializationError.startsWith('Using placeholder')) {
-    return (
-        <Alert variant="destructive" className="mt-8">
-         <AlertCircle className="h-4 w-4" />
-         <AlertTitle>Application Error</AlertTitle>
-         <AlertDescription>
-           Could not connect to backend services. Please ensure Firebase is configured correctly. ({initializationError})
-         </AlertDescription>
-       </Alert>
-    );
-  }
-   // Show placeholder warning if applicable
-   if (initializationError?.startsWith('Using placeholder')) {
-    return (
-        <Alert variant="default" className="mt-8 border-orange-500 text-orange-700 dark:border-orange-400 dark:text-orange-300">
-            <AlertCircle className="h-4 w-4 text-orange-500 dark:text-orange-400" />
-            <AlertTitle className="text-orange-700 dark:text-orange-300">Configuration Notice</AlertTitle>
-            <AlertDescription>
-                {initializationError} Some features might be limited until configured.
-            </AlertDescription>
-        </Alert>
-    );
-}
 
-  // Show sign-in prompt if user is not logged in and Firebase is ready
-  if (!user) {
-    return (
-       <Alert className="mt-8">
-         <Clipboard className="h-4 w-4" />
-         <AlertTitle>Welcome to CrossClip!</AlertTitle>
-         <AlertDescription>
-           Please sign in using the button in the header to start sharing your clipboard across devices.
-         </AlertDescription>
-       </Alert>
-    );
-  }
-
-  // Main component UI for logged-in users
+  // Main component UI
   return (
     <div className="w-full max-w-2xl mx-auto space-y-8">
       <Card className="shadow-md">
         <CardHeader>
-          <CardTitle className="text-xl">Add to Clipboard</CardTitle>
+          <CardTitle className="text-xl">Add to Local Clipboard</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="relative">
@@ -391,7 +213,7 @@ export default function ClipboardManager() {
                 onChange={(e) => setTextInput(e.target.value)}
                 rows={3}
                 className="pr-12 resize-none"
-                disabled={isDisabled}
+                disabled={isProcessing}
              />
              <Button
                 variant="ghost"
@@ -399,40 +221,43 @@ export default function ClipboardManager() {
                 className="absolute top-2 right-2 h-7 w-7 text-muted-foreground hover:text-accent"
                 onClick={handlePasteFromClipboard}
                 title="Paste from Clipboard"
-                disabled={isDisabled}
+                disabled={isProcessing}
              >
                 <Clipboard className="h-4 w-4" />
                 <span className="sr-only">Paste</span>
             </Button>
           </div>
-          <div>
+           {/* --- File Input Removed --- */}
+          {/* <div>
             <label htmlFor="file-input" className="text-sm font-medium block mb-2">Or upload a file/image:</label>
             <Input
               id="file-input"
               type="file"
               onChange={(e) => setFileInput(e.target.files ? e.target.files[0] : null)}
               className="file:text-accent file:border-accent hover:file:bg-accent/10 cursor-pointer"
-              disabled={isDisabled}
+              disabled={isProcessing}
               aria-label="Upload file"
             />
-             {isUploading && uploadProgress !== null && (
+             {isUploading && uploadProgress !== null && ( // isProcessing replaces isUploading
                  <Progress value={uploadProgress} className="w-full mt-2 h-2" aria-label={`Uploading ${uploadProgress}%`}/>
              )}
-          </div>
+          </div> */}
+          {/* --- End File Input Removal --- */}
         </CardContent>
         <CardFooter>
           <Button
             onClick={handleAddItem}
-            disabled={isDisabled || (!textInput.trim() && !fileInput)}
+            // disabled={isProcessing || (!textInput.trim() && !fileInput)} // fileInput removed
+            disabled={isProcessing || !textInput.trim()}
             className="w-full bg-accent hover:bg-accent/90 text-accent-foreground"
            >
-            <Upload className="mr-2 h-4 w-4" /> {isUploading ? 'Uploading...' : 'Add Item'}
+            <Upload className="mr-2 h-4 w-4" /> {isProcessing ? 'Adding...' : 'Add Item'}
           </Button>
         </CardFooter>
       </Card>
 
       <div>
-        <h2 className="text-xl font-semibold mb-4">Clipboard History</h2>
+        <h2 className="text-xl font-semibold mb-4">Local Clipboard History</h2>
         {/* Show skeleton for clipboard items while they are loading */}
         {isLoading ? (
            <div className="space-y-4">
@@ -443,7 +268,7 @@ export default function ClipboardManager() {
         ) : clipboardItems.length === 0 ? (
           <Card className="shadow-sm">
             <CardContent className="p-6">
-              <p className="text-muted-foreground text-center">Your shared clipboard is empty. Add some text or upload a file above!</p>
+              <p className="text-muted-foreground text-center">Your local clipboard is empty. Add some text or a URL above!</p>
             </CardContent>
           </Card>
         ) : (
@@ -458,7 +283,7 @@ export default function ClipboardManager() {
                          <span className="capitalize">{item.type}</span>
                      </div>
                      <span className="text-xs text-muted-foreground">
-                        {item.createdAt?.toDate().toLocaleString() ?? 'Just now'}
+                        {item.createdAt?.toLocaleString() ?? 'Just now'}
                     </span>
                   </CardHeader>
                   <CardContent className="p-4">
@@ -466,18 +291,15 @@ export default function ClipboardManager() {
                   </CardContent>
                   <CardFooter className="flex justify-end gap-2 py-2 px-4 border-t">
                    {(item.type === 'text' || item.type === 'url') && (
-                       <Button variant="ghost" size="icon" onClick={() => handleCopyToClipboard(item.content)} title="Copy to Clipboard" disabled={isDisabled}>
+                       <Button variant="ghost" size="icon" onClick={() => handleCopyToClipboard(item.content)} title="Copy to Clipboard" disabled={isProcessing}>
                          <Copy className="h-4 w-4" />
                          <span className="sr-only">Copy {item.type}</span>
                        </Button>
                     )}
-                    {(item.type === 'image' || item.type === 'file') && (
-                       <Button variant="ghost" size="icon" onClick={() => handleDownloadFile(item.content, item.fileName)} title="Download" disabled={isDisabled}>
-                         <Download className="h-4 w-4" />
-                          <span className="sr-only">Download {item.fileName || item.type}</span>
-                       </Button>
-                    )}
-                     <Button variant="ghost" size="icon" onClick={() => handleDeleteItem(item)} title="Delete" className="text-destructive hover:text-destructive hover:bg-destructive/10" disabled={isDisabled}>
+                    {/* --- Download Button Removed --- */}
+                    {/* {(item.type === 'image' || item.type === 'file') && ( ... )} */}
+                    {/* --- End Download Button Removal --- */}
+                     <Button variant="ghost" size="icon" onClick={() => handleDeleteItem(item.id)} title="Delete" className="text-destructive hover:text-destructive hover:bg-destructive/10" disabled={isProcessing}>
                        <Trash2 className="h-4 w-4" />
                        <span className="sr-only">Delete {item.type} item</span>
                      </Button>

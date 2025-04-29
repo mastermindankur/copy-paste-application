@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Geist_Sans as Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { cn } from '@/lib/utils';
-import { FirebaseProvider } from '@/lib/firebase/provider';
 import { Toaster } from '@/components/ui/toaster';
 import Header from '@/components/layout/header';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -21,6 +21,9 @@ export const metadata: Metadata = {
   description: 'Seamless clipboard sharing across devices.',
 };
 
+// Create a client
+const queryClient = new QueryClient()
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -34,13 +37,13 @@ export default function RootLayout({
           'flex flex-col min-h-screen'
         )}
       >
-        <FirebaseProvider>
-          <Header />
-          <main className="flex-grow container mx-auto px-4 py-8">
-            {children}
-          </main>
-          <Toaster />
-        </FirebaseProvider>
+         <QueryClientProvider client={queryClient}>
+           <Header />
+           <main className="flex-grow container mx-auto px-4 py-8">
+             {children}
+           </main>
+           <Toaster />
+         </QueryClientProvider>
       </body>
     </html>
   );
