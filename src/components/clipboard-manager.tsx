@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from '@/hooks/use-toast';
-import { Clipboard, FileText, Trash2, Upload, Copy, Link as LinkIcon, Code, AlertTriangle } from 'lucide-react';
+import { Clipboard, FileText, Trash2, Upload, Copy, Link as LinkIcon, Code, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 import type { ClipboardItemData } from '@/lib/types';
 
@@ -15,6 +15,8 @@ interface ClipboardManagerProps {
   collectionId: string | null; // null for local-only mode, string for shared collection
   initialItems?: ClipboardItemData[]; // Optional initial items for shared collections
 }
+
+const ITEMS_PER_PAGE = 10; // Number of items to display per page
 
 export default function ClipboardManager({ collectionId, initialItems }: ClipboardManagerProps) {
   const [textInput, setTextInput] = useState('');
@@ -24,7 +26,26 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
   const [isProcessing, setIsProcessing] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+
   const isSharedMode = useMemo(() => collectionId !== null, [collectionId]);
+
+  // --- Pagination Calculations ---
+  const totalPages = Math.ceil(clipboardItems.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const paginatedItems = clipboardItems.slice(startIndex, endIndex);
+
+  // --- Pagination Handlers ---
+  const goToNextPage = () => {
+    setCurrentPage((prev) => Math.min(prev + 1, totalPages));
+  };
+
+  const goToPreviousPage = () => {
+    setCurrentPage((prev) => Math.max(prev - 1, 1));
+  };
+
 
   // --- Data Fetching (only for shared mode) ---
   const fetchItems = useCallback(async () => {
@@ -45,6 +66,7 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
            // Ensure items are sorted by date, newest first
            data.items.sort((a: ClipboardItemData, b: ClipboardItemData) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           setClipboardItems(data.items || []);
+          setCurrentPage(1); // Reset to first page on fetch
       } catch (error) {
           console.error("Error fetching items:", error);
           const message = error instanceof Error ? error.message : 'Could not load items.';
@@ -69,7 +91,10 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
    // Update local state if initialItems prop changes (e.g., parent refreshes)
    useEffect(() => {
         if (initialItems) {
-            setClipboardItems(initialItems);
+            // Sort initial items as well
+            const sortedInitialItems = [...initialItems].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            setClipboardItems(sortedInitialItems);
+            setCurrentPage(1); // Reset to first page if initial items change
             setIsLoading(false); // Ensure loading is false if initial items are provided
         }
    }, [initialItems]);
@@ -117,6 +142,7 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
             }
              // Prepend the successfully added item (returned from API) to the local state
             setClipboardItems(prevItems => [addedItem, ...prevItems]);
+            setCurrentPage(1); // Go to first page to see the new item
             toast({ title: 'Success', description: `${type.toUpperCase()} added to shared clipboard.` });
         } catch (error) {
              console.error('Failed to add item via API:', error);
@@ -135,6 +161,7 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
              createdAt: new Date(), // Use Date object for local
          };
         setClipboardItems(prevItems => [newItem, ...prevItems]);
+        setCurrentPage(1); // Go to first page to see the new item
         toast({ title: 'Success', description: `${type.toUpperCase()} added to local clipboard.` });
         setIsProcessing(false);
     }
@@ -238,7 +265,17 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
                  throw new Error(result.error || result.details || 'Failed to delete item.');
              }
              // Remove item locally on successful API call
-            setClipboardItems(prevItems => prevItems.filter(item => item.id !== id));
+            setClipboardItems(prevItems => {
+                const newItems = prevItems.filter(item => item.id !== id);
+                 // Adjust current page if the last item on the page was deleted
+                const newTotalPages = Math.ceil(newItems.length / ITEMS_PER_PAGE);
+                if (currentPage > newTotalPages && newTotalPages > 0) {
+                    setCurrentPage(newTotalPages);
+                } else if (newTotalPages === 0) {
+                    setCurrentPage(1); // Go back to page 1 if list becomes empty
+                }
+                return newItems;
+            });
             toast({ title: 'Deleted', description: 'Item removed from shared clipboard.' });
         } catch (error) {
              console.error('Failed to delete item via API:', error);
@@ -251,7 +288,17 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
 
      } else {
         // --- Delete item locally ---
-        setClipboardItems(prevItems => prevItems.filter(item => item.id !== id));
+        setClipboardItems(prevItems => {
+            const newItems = prevItems.filter(item => item.id !== id);
+            // Adjust current page if the last item on the page was deleted
+            const newTotalPages = Math.ceil(newItems.length / ITEMS_PER_PAGE);
+             if (currentPage > newTotalPages && newTotalPages > 0) {
+                setCurrentPage(newTotalPages);
+            } else if (newTotalPages === 0) {
+                setCurrentPage(1); // Go back to page 1 if list becomes empty
+            }
+            return newItems;
+        });
         toast({ title: 'Deleted', description: 'Item removed from local clipboard.' });
         setIsProcessing(false);
      }
@@ -264,6 +311,16 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
     setApiError(null);
 
     try {
+        // Check for secure context (HTTPS), required by clipboard API except for localhost
+        if (typeof window !== 'undefined' && !window.isSecureContext && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+            console.warn('Clipboard API requires a secure context (HTTPS).');
+            toast({ title: 'Warning', description: 'Copying to clipboard requires a secure connection (HTTPS).', variant: 'destructive' });
+             // Optionally show manual copy instructions
+             // Don't proceed with the API call
+             setIsProcessing(false);
+             return;
+        }
+
         if (item.type === 'html' && item.htmlContent && navigator.clipboard.write && typeof window.ClipboardItem === 'function') {
              try {
                  const plainTextBlob = new Blob([item.content], { type: 'text/plain' });
@@ -284,9 +341,20 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
             await navigator.clipboard.writeText(item.content);
             toast({ title: 'Copied!', description: `${item.type === 'url' ? 'URL' : 'Plain text'} copied.` });
         }
-    } catch (err) {
+    } catch (err: any) {
         console.error('Failed to copy: ', err);
-        toast({ title: 'Error', description: 'Could not copy content.', variant: 'destructive' });
+         let description = 'Could not copy content.';
+         // Try to provide more specific feedback based on the error
+         if (err instanceof DOMException) {
+             if (err.name === 'NotAllowedError') {
+                 description = 'Clipboard write permission denied. Please grant permission in your browser or copy manually.';
+             } else if (err.message.includes('Permissions Policy') || err.message.includes('permission policy')) {
+                 description = 'Clipboard access blocked by browser policy. Please copy manually.';
+             } else if (err.message.includes('secure context')) {
+                 description = 'Copying to clipboard requires a secure connection (HTTPS).';
+             }
+         }
+        toast({ title: 'Error', description: description, variant: 'destructive' });
     } finally {
         setIsProcessing(false);
     }
@@ -406,9 +474,10 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
         </h2>
         {isLoading ? (
            <div className="space-y-4">
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
+              {/* Skeletons for paginated items */}
+              {[...Array(Math.min(ITEMS_PER_PAGE, 3))].map((_, index) => (
+                  <Skeleton key={index} className="h-28 w-full" />
+              ))}
            </div>
         ) : clipboardItems.length === 0 ? (
           <Card className="shadow-sm">
@@ -419,37 +488,66 @@ export default function ClipboardManager({ collectionId, initialItems }: Clipboa
             </CardContent>
           </Card>
         ) : (
-          <ScrollArea className="h-[400px] w-full rounded-md border p-4 bg-card">
-             <p className="sr-only">List of clipboard items</p>
-            <div className="space-y-4">
-              {clipboardItems.map((item) => (
-                <Card key={item.id} className="shadow-sm transition-all hover:shadow-md overflow-hidden">
-                   <CardHeader className="flex flex-row items-center justify-between py-2 px-4 border-b bg-muted/50">
-                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                         {getItemIcon(item.type)}
-                         <span className="capitalize">{item.type}</span>
-                     </div>
-                     <span className="text-xs text-muted-foreground">
-                        {formatTimestamp(item.createdAt)}
-                    </span>
-                  </CardHeader>
-                  <CardContent className="p-4 max-h-48 overflow-y-auto">
-                    {renderItemContent(item)}
-                  </CardContent>
-                  <CardFooter className="flex justify-end gap-2 py-2 px-4 border-t bg-muted/50">
-                    <Button variant="ghost" size="icon" onClick={() => handleCopyToClipboard(item)} title={`Copy ${item.type}`} disabled={isProcessing}>
-                      <Copy className="h-4 w-4" />
-                      <span className="sr-only">Copy {item.type}</span>
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDeleteItem(item.id)} title="Delete" className="text-destructive hover:text-destructive hover:bg-destructive/10" disabled={isProcessing}>
-                      <Trash2 className="h-4 w-4" />
-                      <span className="sr-only">Delete {item.type} item</span>
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
-          </ScrollArea>
+          <>
+          {/* ScrollArea is removed for pagination, content fits in cards */}
+             {/*<ScrollArea className="h-[400px] w-full rounded-md border p-4 bg-card"> */}
+                <div className="space-y-4">
+                  {paginatedItems.map((item) => (
+                    <Card key={item.id} className="shadow-sm transition-all hover:shadow-md overflow-hidden">
+                       <CardHeader className="flex flex-row items-center justify-between py-2 px-4 border-b bg-muted/50">
+                        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                             {getItemIcon(item.type)}
+                             <span className="capitalize">{item.type}</span>
+                         </div>
+                         <span className="text-xs text-muted-foreground">
+                            {formatTimestamp(item.createdAt)}
+                        </span>
+                      </CardHeader>
+                      <CardContent className="p-4 max-h-48 overflow-y-auto">
+                        {renderItemContent(item)}
+                      </CardContent>
+                      <CardFooter className="flex justify-end gap-2 py-2 px-4 border-t bg-muted/50">
+                        <Button variant="ghost" size="icon" onClick={() => handleCopyToClipboard(item)} title={`Copy ${item.type}`} disabled={isProcessing}>
+                          <Copy className="h-4 w-4" />
+                          <span className="sr-only">Copy {item.type}</span>
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDeleteItem(item.id)} title="Delete" className="text-destructive hover:text-destructive hover:bg-destructive/10" disabled={isProcessing}>
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete {item.type} item</span>
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  ))}
+                </div>
+             {/* </ScrollArea> */}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center space-x-4 mt-6">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={goToPreviousPage}
+                  disabled={currentPage === 1 || isLoading || isProcessing}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="sr-only">Previous Page</span>
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={goToNextPage}
+                  disabled={currentPage === totalPages || isLoading || isProcessing}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="sr-only">Next Page</span>
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
