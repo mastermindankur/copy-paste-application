@@ -10,18 +10,28 @@ interface CreateResponse {
 }
 
 export async function POST() {
-  const initError = getRedisInitializationError();
-  if (initError) {
-      console.error('API Error: Redis client not available.', initError);
+  const initError = getRedisInitializationError(); // Check initial config error
+  if (initError && !initError.startsWith('Redis Client Error')) { // Allow transient connection errors from client itself
+      console.error('API Config Error: Redis client not available.', initError);
       return NextResponse.json(
           { error: 'Server configuration error', details: initError },
           { status: 500 }
       );
   }
 
+  let redis;
   try {
-    const redis = getRedisClient(); // Get the initialized client instance
+     redis = await getRedisClient(); // Get connected client
+  } catch (error) {
+     console.error('API Runtime Error: Failed to get Redis client:', error);
+     const errorDetails = error instanceof Error ? error.message : 'Could not connect to Redis.';
+     return NextResponse.json(
+         { error: 'Failed to connect to database', details: errorDetails },
+         { status: 500 }
+     );
+  }
 
+  try {
     const collectionId = crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -37,11 +47,14 @@ export async function POST() {
     // Set an expiration time for the collection (e.g., 7 days)
     const expirationInSeconds = 7 * 24 * 60 * 60; // 7 days
 
-    // Use 'set' with 'EX' option for atomic set and expire with ioredis
-    const setResult = await redis.set(collectionKey, JSON.stringify(newCollection), 'EX', expirationInSeconds);
+    // Use 'set' with 'EX' option for atomic set and expire
+    const setResult = await redis.set(collectionKey, JSON.stringify(newCollection), {
+        EX: expirationInSeconds,
+    });
 
     if (setResult !== 'OK') {
         console.error(`Failed to set collection ${collectionId} in Redis. Result: ${setResult}`);
+        // Note: redis client might throw directly on SET failure depending on config
         throw new Error('Failed to save new collection data.');
     }
 
@@ -61,11 +74,9 @@ export async function POST() {
     console.error('Failed to create clip collection:', error);
     // Provide more specific error details if possible
     const errorDetails = error instanceof Error ? error.message : 'An unknown error occurred.';
-    // Distinguish between config errors and runtime errors
-    const status = errorDetails.includes('Redis client failed to initialize') || errorDetails.includes('Redis client is not connected') ? 500 : 500; // Keep 500, but could customize
     return NextResponse.json(
         { error: 'Failed to create clip collection', details: errorDetails },
-        { status: status }
+        { status: 500 }
     );
   }
 }

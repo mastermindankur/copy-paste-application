@@ -11,9 +11,8 @@ interface Params {
 export async function DELETE(request: Request, { params }: { params: Params }) {
   const { collectionId, itemId } = params;
   const initError = getRedisInitializationError();
-
-  if (initError) {
-      console.error('API Error: Redis client not available.', initError);
+  if (initError && !initError.startsWith('Redis Client Error')) {
+      console.error('API Config Error: Redis client not available.', initError);
       return NextResponse.json(
           { error: 'Server configuration error', details: initError },
           { status: 500 }
@@ -24,16 +23,26 @@ export async function DELETE(request: Request, { params }: { params: Params }) {
     return NextResponse.json({ error: 'Collection ID and Item ID are required' }, { status: 400 });
   }
 
+  let redis;
   try {
-    const redis = getRedisClient();
-    const collectionKey = `clip:${collectionId}`;
+     redis = await getRedisClient();
+  } catch (error) {
+     console.error('API Runtime Error: Failed to get Redis client:', error);
+     const errorDetails = error instanceof Error ? error.message : 'Could not connect to Redis.';
+     return NextResponse.json(
+         { error: 'Failed to connect to database', details: errorDetails },
+         { status: 500 }
+     );
+  }
 
-    // --- Using MULTI/EXEC for Atomicity ---
+  const collectionKey = `clip:${collectionId}`;
+  try {
+    // --- Using WATCH/MULTI/EXEC for Atomicity ---
     await redis.watch(collectionKey);
 
     const rawCurrentCollection = await redis.get(collectionKey);
 
-    if (!rawCurrentCollection) {
+    if (rawCurrentCollection === null) {
         await redis.unwatch();
         return NextResponse.json({ error: 'Collection not found' }, { status: 404 });
     }
@@ -52,9 +61,8 @@ export async function DELETE(request: Request, { params }: { params: Params }) {
 
     if (itemIndex === -1) {
        await redis.unwatch();
-      // Item already deleted or never existed, consider success or 404 based on desired behavior
+      // Item already deleted or never existed
       return NextResponse.json({ message: 'Item not found or already deleted' }, { status: 404 });
-      // return NextResponse.json({ message: 'Item already deleted' }, { status: 200 });
     }
 
     // Remove the item from the array
@@ -71,7 +79,7 @@ export async function DELETE(request: Request, { params }: { params: Params }) {
     // Start transaction
     const multi = redis.multi();
 
-    // Set the updated collection back into Redis
+    // Queue the SET command
     multi.set(collectionKey, JSON.stringify(updatedCollection));
 
      // Preserve TTL if it exists
@@ -83,26 +91,29 @@ export async function DELETE(request: Request, { params }: { params: Params }) {
     const execResult = await multi.exec();
 
     // Check if transaction was successful
-    if (execResult === null) {
+    if (execResult === null || execResult === undefined) {
        console.error(`Transaction failed for deleting item ${itemId} from collection ${collectionId} (likely due to WATCH conflict).`);
       return NextResponse.json({ error: 'Conflict: Collection updated concurrently. Please retry.' }, { status: 409 });
     }
 
-    const setOpResult = execResult[0]?.[1];
-    if (setOpResult !== 'OK') {
-        console.error(`Failed to SET collection ${collectionId} within delete transaction. Result: ${setOpResult}`);
-        return NextResponse.json({ error: 'Failed to save updated collection data during delete transaction.' }, { status: 500 });
-    }
+     // Optional: Check command results if needed
+     const setOpResult = execResult[0];
+     if (setOpResult !== 'OK') {
+         console.warn(`SET command within delete transaction for ${collectionId} returned: ${setOpResult} (Expected 'OK')`);
+     }
+
 
     return NextResponse.json({ message: 'Item deleted successfully' }, { status: 200 });
 
   } catch (error) {
     console.error(`Failed to delete item ${itemId} from collection ${collectionId}:`, error);
+    // Ensure WATCH is released on error
+     try { await redis.unwatch(); } catch (unwatchError) { console.error('Error during unwatch cleanup:', unwatchError); }
+
      const errorDetails = error instanceof Error ? error.message : 'An unknown error occurred.';
-     const status = errorDetails.includes('Redis client failed to initialize') || errorDetails.includes('Redis client is not connected') ? 500 : 500;
     return NextResponse.json(
         { error: 'Failed to delete item', details: errorDetails },
-        { status: status }
+        { status: 500 }
     );
   }
 }
