@@ -9,6 +9,7 @@ import { Loader2, Share, Copy } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip components
+import { cn } from '@/lib/utils'; // Import cn utility
 
 export default function Home() {
   const router = useRouter();
@@ -51,6 +52,10 @@ export default function Home() {
          console.error('API Error Response Body:', responseBody);
          const errorMessage = responseBody.error || 'Failed to create shared collection';
          const errorDetails = responseBody.details || 'No additional details provided.';
+         // If the specific Redis error occurs, provide a more user-friendly message
+         if (typeof errorDetails === 'string' && errorDetails.includes('Redis Client Error') || errorDetails.includes('Could not connect to Redis')) {
+            throw new Error(`Failed to connect to the database. Please check server configuration. (Details: ${errorMessage})`);
+         }
          throw new Error(`Failed to create clip collection (Details: ${errorDetails || errorMessage})`);
       }
 
@@ -107,7 +112,7 @@ export default function Home() {
        if (err instanceof DOMException) {
          if (err.name === 'NotAllowedError') {
            description = 'Clipboard write permission denied. Please grant permission or copy manually.';
-         } else if (err.message.includes('Permissions Policy')) {
+         } else if (err.message.includes('Permissions Policy') || err.message.includes('permission policy')) { // Added explicit check for Permissions Policy error
            description = 'Clipboard access blocked by browser policy. Please copy manually.';
          } else if (err.message.includes('secure context')) {
            description = 'Copying to clipboard requires a secure connection (HTTPS).';
@@ -142,13 +147,13 @@ export default function Home() {
               <CardHeader>
                   <CardTitle>Shared Clipboard</CardTitle>
                   <CardDescription>
-                      Click below to generate a unique, shareable URL. Anyone with the URL can view and add items to this clipboard for 7 days.
+                      Click below to generate a unique, shareable URL. Anyone with the URL can view and add items to this clipboard for 7 days. Data is stored securely.
                   </CardDescription>
               </CardHeader>
               <CardContent>
                    {newCollectionUrl ? (
                       <div className="space-y-3">
-                          <p className="text-sm font-medium text-center">Your shared clipboard is ready!</p>
+                          <p className="text-sm font-medium text-center text-green-700 dark:text-green-400">Your shared clipboard is ready!</p>
                           <div className="flex items-center gap-2">
                               <input
                                   type="text"
@@ -164,6 +169,7 @@ export default function Home() {
                                         variant="outline"
                                         size="icon"
                                         onClick={() => handleCopyToClipboard(newCollectionUrl)}
+                                        aria-label="Copy Share URL" // More descriptive aria-label
                                     >
                                         <Copy className="h-4 w-4" />
                                         <span className="sr-only">Copy Share URL</span>
@@ -175,7 +181,13 @@ export default function Home() {
                                 </Tooltip>
                           </div>
                            <p className="text-xs text-muted-foreground text-center">Copy this URL and open it on other devices to sync.</p>
-                          <Button onClick={() => router.push(newCollectionUrl)} className="w-full">
+                          <Button
+                             onClick={() => router.push(newCollectionUrl)}
+                             className={cn(
+                                "w-full",
+                                newCollectionUrl && "bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:hover:bg-emerald-600" // Green background when URL exists
+                             )}
+                           >
                               Go to Shared Clipboard
                           </Button>
                       </div>
@@ -190,6 +202,7 @@ export default function Home() {
                       onClick={handleCreateSharedCollection}
                       disabled={isCreating}
                       className="w-full"
+                      variant={newCollectionUrl ? "secondary" : "default"} // Change variant slightly if already created
                   >
                       {isCreating ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
