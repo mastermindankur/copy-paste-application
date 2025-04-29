@@ -59,8 +59,12 @@ export async function POST() {
     }
 
 
-    // Construct the URL for the new collection
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:9002';
+    // Construct the URL for the new collection using the environment variable
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL; // Use the env variable
+    if (!baseUrl) {
+        console.error('NEXT_PUBLIC_BASE_URL environment variable is not set!');
+        throw new Error('Server configuration error: Base URL not found.');
+    }
     const collectionUrl = `${baseUrl}/clip/${collectionId}`;
 
     const response: CreateResponse = {
