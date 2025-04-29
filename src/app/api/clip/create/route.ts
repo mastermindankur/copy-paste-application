@@ -9,6 +9,46 @@ interface CreateResponse {
     id: string;
 }
 
+// Helper function to determine the base URL at runtime
+const getRuntimeBaseUrl = (): string => {
+  let source = 'Unknown';
+  let url = '';
+
+  // 1. Vercel System Environment Variable (Preferred for Vercel deployments)
+  // Vercel automatically sets NEXT_PUBLIC_VERCEL_URL for deployments.
+  const vercelUrl = process.env.NEXT_PUBLIC_VERCEL_URL;
+  if (vercelUrl) {
+    // Ensure it starts with https://, Vercel usually provides this.
+    url = vercelUrl.startsWith('https://') ? vercelUrl : `https://${vercelUrl}`;
+    source = 'Vercel (NEXT_PUBLIC_VERCEL_URL)';
+    console.log(`Create API Runtime: Using ${source}: ${url}`);
+    return url;
+  }
+
+  // 2. Explicitly Set Environment Variable (For non-Vercel deployments or overrides)
+  const explicitBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+  if (explicitBaseUrl) {
+    // Basic validation: Check if it starts with http
+    if (explicitBaseUrl.startsWith('http://') || explicitBaseUrl.startsWith('https://')) {
+        url = explicitBaseUrl;
+        source = 'Explicit (NEXT_PUBLIC_BASE_URL)';
+        console.log(`Create API Runtime: Using ${source}: ${url}`);
+        return url;
+    } else {
+        console.error(`Create API Runtime Error: Invalid NEXT_PUBLIC_BASE_URL format: ${explicitBaseUrl}. Must start with http:// or https://.`);
+        // Fall through to localhost if invalid explicit URL is provided
+    }
+  }
+
+  // 3. Fallback to localhost (Development or misconfigured environment)
+  url = 'http://localhost:9002'; // Default port
+  source = 'Fallback (localhost)';
+  // This warning is crucial for deployment troubleshooting
+  console.warn(`Create API Runtime Warning: Vercel URL and valid NEXT_PUBLIC_BASE_URL are not set. Using ${source}: ${url}. Ensure NEXT_PUBLIC_BASE_URL is configured correctly in your hosting environment's runtime variables for non-Vercel deployments.`);
+  return url;
+};
+
+
 export async function POST() {
   const initError = getRedisInitializationError();
   if (initError && !initError.startsWith('Redis Client Error')) {
@@ -46,6 +86,7 @@ export async function POST() {
 
     const setResult = await redis.set(collectionKey, JSON.stringify(newCollection), {
         EX: expirationInSeconds,
+        // NX: true // Optional: Only set if the key does not already exist
     });
 
     if (setResult !== 'OK') {
@@ -53,27 +94,9 @@ export async function POST() {
         throw new Error('Failed to save new collection data.');
     }
 
-    // --- URL Construction ---
-    // Log the value of NEXT_PUBLIC_BASE_URL available at runtime in the API route
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-    console.log(`Create API Runtime: NEXT_PUBLIC_BASE_URL = ${baseUrl}`); // Explicit runtime logging
-
-    let collectionUrl: string;
-
-    if (baseUrl && baseUrl.startsWith('http')) { // Basic check for a valid-looking URL
-        console.log(`Create API: Constructing URL with base: ${baseUrl}`);
-        collectionUrl = `${baseUrl}/clip/${collectionId}`;
-    } else {
-        // Log why we are falling back
-        if (!baseUrl) {
-            console.error('Create API Error: NEXT_PUBLIC_BASE_URL environment variable is not set or not passed to runtime!');
-        } else {
-            console.error(`Create API Error: NEXT_PUBLIC_BASE_URL is invalid ('${baseUrl}'). Must start with http:// or https://.`);
-        }
-        // Fallback to relative URL - This should generally be avoided for shareable links
-        collectionUrl = `/clip/${collectionId}`;
-        console.warn(`Create API Warning: Falling back to relative URL: ${collectionUrl}. This might not work correctly for external sharing. Check NEXT_PUBLIC_BASE_URL configuration in your environment.`);
-    }
+    // --- URL Construction using runtime logic ---
+    const baseUrl = getRuntimeBaseUrl();
+    const collectionUrl = `${baseUrl}/clip/${collectionId}`;
     console.log(`Create API: Final generated collection URL: ${collectionUrl}`);
     // --- End URL Construction ---
 
