@@ -1,11 +1,11 @@
 
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation'; // Use App Router's navigation
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import ClipboardManager from '@/components/clipboard-manager';
 import { Button } from '@/components/ui/button';
-import { Loader2, Share } from 'lucide-react';
+import { Loader2, Share, Copy } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -13,56 +13,60 @@ export default function Home() {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
   const [newCollectionUrl, setNewCollectionUrl] = useState<string | null>(null);
+  const [clientBaseUrl, setClientBaseUrl] = useState<string | undefined>(undefined);
 
+  // Log the base URL available on the client side
+  useEffect(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    console.log('Client-side NEXT_PUBLIC_BASE_URL:', baseUrl);
+    setClientBaseUrl(baseUrl);
+  }, []);
 
   const handleCreateSharedCollection = async () => {
     setIsCreating(true);
-    setNewCollectionUrl(null); // Reset previous URL
+    setNewCollectionUrl(null);
     try {
       const response = await fetch('/api/clip/create', {
         method: 'POST',
       });
 
-      let responseBody: any = {}; // Initialize empty object
+      let responseBody: any = {};
       let responseText = '';
 
       try {
-            // Try to get the raw text first
             responseText = await response.text();
-            // console.log('Raw API Error Response Text:', responseText); // Log raw text
-            // Then try to parse it as JSON
+            if (!responseText) {
+                 throw new Error('Empty API response received.');
+            }
             responseBody = JSON.parse(responseText);
         } catch (parseError) {
-            // If parsing fails, log the raw text and use a generic error
             console.error('Failed to parse API response as JSON:', parseError);
             console.error('Raw API Response Text (on parse error):', responseText);
-            // Use the raw text if it seems like a simple error message, or a generic one
             responseBody = { error: responseText || 'Failed to create shared collection. Invalid API response.' };
         }
 
 
       if (!response.ok) {
-         // Log the detailed error from the API response if available
          console.error('API Error Response Body:', responseBody);
-         // Use the error message from the API response, or a default
          const errorMessage = responseBody.error || 'Failed to create shared collection';
          const errorDetails = responseBody.details || 'No additional details provided.';
          throw new Error(`Failed to create clip collection (Details: ${errorDetails || errorMessage})`);
       }
 
-      const { url, id } = responseBody; // Destructure from parsed body
+      const { url, id } = responseBody;
 
       if (!url || !id) {
           throw new Error('Invalid response from server: Missing URL or ID.');
       }
 
+      console.log(`Shared collection created. Received URL: ${url}`); // Log the URL received from API
       setNewCollectionUrl(url);
       toast({
           title: 'Shared Clipboard Created!',
           description: 'You can now share this URL.',
       });
-      // Optionally redirect immediately:
-      // router.push(`/clip/${id}`);
+      // Optional: redirect immediately:
+      // router.push(url); // Use the received URL for redirection
 
     } catch (error) {
         console.error("Error creating shared collection:", error);
@@ -97,6 +101,10 @@ export default function Home() {
         <p className="text-muted-foreground max-w-md mx-auto">
           Your personal clipboard history. Add items locally or create a shared clipboard to sync across devices via a unique URL.
         </p>
+         {/* Display client-side base URL for debugging */}
+         {process.env.NODE_ENV === 'development' && clientBaseUrl && (
+             <p className="text-xs mt-2 text-gray-500">(Debug: Client Base URL: {clientBaseUrl})</p>
+         )}
       </div>
 
       {/* Shared Collection Section */}
@@ -118,13 +126,16 @@ export default function Home() {
                                 readOnly
                                 className="flex-grow p-2 border rounded-md bg-muted text-muted-foreground text-sm"
                                 aria-label="Shared Clipboard URL"
+                                onFocus={(e) => e.target.select()}
                             />
                             <Button
                                 variant="outline"
-                                size="sm"
+                                size="icon"
+                                title="Copy URL"
                                 onClick={() => handleCopyToClipboard(newCollectionUrl)}
                             >
-                                Copy
+                                <Copy className="h-4 w-4" />
+                                <span className="sr-only">Copy URL</span>
                             </Button>
                         </div>
                         <Button onClick={() => router.push(newCollectionUrl)} className="w-full">
@@ -155,9 +166,18 @@ export default function Home() {
 
 
       {/* Local Clipboard Section */}
-      <div className="w-full max-w-3xl">
-        {/* Pass collectionId={null} or similar if needed by ClipboardManager */}
-        <ClipboardManager collectionId={null} />
+      <div className="w-full max-w-3xl mt-8">
+         <Card className="shadow-md">
+             <CardHeader>
+                 <CardTitle>Local Clipboard</CardTitle>
+                 <CardDescription>
+                     Items added here are stored only in your current browser session and are not shared.
+                 </CardDescription>
+             </CardHeader>
+             <CardContent>
+                 <ClipboardManager collectionId={null} />
+             </CardContent>
+         </Card>
       </div>
 
     </div>

@@ -10,8 +10,8 @@ interface CreateResponse {
 }
 
 export async function POST() {
-  const initError = getRedisInitializationError(); // Check initial config error
-  if (initError && !initError.startsWith('Redis Client Error')) { // Allow transient connection errors from client itself
+  const initError = getRedisInitializationError();
+  if (initError && !initError.startsWith('Redis Client Error')) {
       console.error('API Config Error: Redis client not available.', initError);
       return NextResponse.json(
           { error: 'Server configuration error', details: initError },
@@ -21,7 +21,7 @@ export async function POST() {
 
   let redis;
   try {
-     redis = await getRedisClient(); // Get connected client
+     redis = await getRedisClient();
   } catch (error) {
      console.error('API Runtime Error: Failed to get Redis client:', error);
      const errorDetails = error instanceof Error ? error.message : 'Could not connect to Redis.';
@@ -42,38 +42,36 @@ export async function POST() {
     };
 
     const collectionKey = `clip:${collectionId}`;
-
-    // Store the new empty collection in Redis
-    // Set an expiration time for the collection (e.g., 7 days)
     const expirationInSeconds = 7 * 24 * 60 * 60; // 7 days
 
-    // Use 'set' with 'EX' option for atomic set and expire
     const setResult = await redis.set(collectionKey, JSON.stringify(newCollection), {
         EX: expirationInSeconds,
     });
 
     if (setResult !== 'OK') {
         console.error(`Failed to set collection ${collectionId} in Redis. Result: ${setResult}`);
-        // Note: redis client might throw directly on SET failure depending on config
         throw new Error('Failed to save new collection data.');
     }
 
+    // --- URL Construction ---
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    let collectionUrl: string;
 
-    // Construct the URL for the new collection using the environment variable
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL; // Use the env variable determined in next.config.js
-    if (!baseUrl) {
-        console.error('NEXT_PUBLIC_BASE_URL environment variable is not set!');
-        // Don't throw here, provide a fallback or log, but it indicates a config issue
-        // Fallback to relative URL which might work in some scenarios but isn't ideal
-        const collectionUrl = `/clip/${collectionId}`;
-        console.warn('Warning: NEXT_PUBLIC_BASE_URL not set, using relative URL:', collectionUrl);
-        const response: CreateResponse = {
-            url: collectionUrl,
-            id: collectionId,
-        };
-        return NextResponse.json(response, { status: 201 });
+    if (baseUrl && baseUrl.startsWith('http')) { // Basic check for a valid-looking URL
+        console.log(`Create API: Using base URL from env: ${baseUrl}`);
+        collectionUrl = `${baseUrl}/clip/${collectionId}`;
+    } else {
+        // Log why we are falling back
+        if (!baseUrl) {
+            console.error('Create API Error: NEXT_PUBLIC_BASE_URL environment variable is not set!');
+        } else {
+            console.error(`Create API Error: NEXT_PUBLIC_BASE_URL is invalid ('${baseUrl}'). Must start with http:// or https://.`);
+        }
+        // Fallback to relative URL
+        collectionUrl = `/clip/${collectionId}`;
+        console.warn(`Create API Warning: Falling back to relative URL: ${collectionUrl}. This might not work correctly for external sharing.`);
     }
-    const collectionUrl = `${baseUrl}/clip/${collectionId}`;
+    // --- End URL Construction ---
 
     const response: CreateResponse = {
       url: collectionUrl,
@@ -84,7 +82,6 @@ export async function POST() {
 
   } catch (error) {
     console.error('Failed to create clip collection:', error);
-    // Provide more specific error details if possible
     const errorDetails = error instanceof Error ? error.message : 'An unknown error occurred.';
     return NextResponse.json(
         { error: 'Failed to create clip collection', details: errorDetails },
