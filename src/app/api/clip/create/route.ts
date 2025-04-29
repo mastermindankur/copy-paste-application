@@ -9,23 +9,21 @@ interface CreateResponse {
     id: string;
 }
 
-// Helper function to determine the base URL at runtime
-const getRuntimeBaseUrl = (): string => {
+// Helper function to determine the base URL at runtime - CRITICAL for share URLs
+const getRuntimeBaseUrl = (): string | null => {
   let source = 'Unknown';
   let url = '';
 
   // 1. Vercel System Environment Variable (Preferred for Vercel deployments)
-  // Vercel automatically sets NEXT_PUBLIC_VERCEL_URL for deployments.
   const vercelUrl = process.env.NEXT_PUBLIC_VERCEL_URL;
   if (vercelUrl) {
-    // Ensure it starts with https://, Vercel usually provides this.
     url = vercelUrl.startsWith('https://') ? vercelUrl : `https://${vercelUrl}`;
     source = 'Vercel (NEXT_PUBLIC_VERCEL_URL)';
     console.log(`Create API Runtime: Using ${source}: ${url}`);
     return url;
   }
 
-  // 2. Explicitly Set Environment Variable (For non-Vercel deployments or overrides)
+  // 2. Explicitly Set Environment Variable (Required for non-Vercel or local)
   const explicitBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
   if (explicitBaseUrl) {
     // Basic validation: Check if it starts with http
@@ -36,28 +34,37 @@ const getRuntimeBaseUrl = (): string => {
         return url;
     } else {
         console.error(`Create API Runtime Error: Invalid NEXT_PUBLIC_BASE_URL format: ${explicitBaseUrl}. Must start with http:// or https://.`);
-        // Fall through to localhost if invalid explicit URL is provided
+        // Fall through, URL remains empty, will trigger error below
     }
   }
 
-  // 3. Fallback to localhost (Development or misconfigured environment)
-  url = 'http://localhost:9002'; // Default port
-  source = 'Fallback (localhost)';
-  // This warning is crucial for deployment troubleshooting
-  console.warn(`Create API Runtime Warning: Vercel URL and valid NEXT_PUBLIC_BASE_URL are not set. Using ${source}: ${url}. Ensure NEXT_PUBLIC_BASE_URL is configured correctly in your hosting environment's runtime variables for non-Vercel deployments.`);
-  return url;
+  // 3. Error State: No valid URL found
+  console.error(`Create API Runtime CRITICAL ERROR: Cannot determine base URL. Neither NEXT_PUBLIC_VERCEL_URL nor a valid NEXT_PUBLIC_BASE_URL is set. Cannot generate share URL.`);
+  return null; // Indicate failure to determine URL
 };
 
 
 export async function POST() {
   const initError = getRedisInitializationError();
-  if (initError && !initError.startsWith('Redis Client Error')) {
-      console.error('API Config Error: Redis client not available.', initError);
+  // Allow connection errors to be handled later if client can be created initially
+  if (initError && !initError.startsWith('Redis Client Error') && !initError.startsWith('Failed to create Redis client')) {
+      console.error('API Config Error: Redis setup failed before connection attempt.', initError);
       return NextResponse.json(
-          { error: 'Server configuration error', details: initError },
+          { error: 'Server configuration error (Redis)', details: initError },
           { status: 500 }
       );
   }
+
+   // --- URL Construction: Must happen before DB interaction if failure prevents URL gen ---
+   const baseUrl = getRuntimeBaseUrl();
+   if (!baseUrl) {
+       return NextResponse.json(
+           { error: 'Server configuration error', details: 'Cannot determine application base URL. NEXT_PUBLIC_BASE_URL environment variable might be missing or invalid.' },
+           { status: 500 }
+       );
+   }
+   // --- End URL Construction ---
+
 
   let redis;
   try {
@@ -65,6 +72,13 @@ export async function POST() {
   } catch (error) {
      console.error('API Runtime Error: Failed to get Redis client:', error);
      const errorDetails = error instanceof Error ? error.message : 'Could not connect to Redis.';
+     // Check if it's the specific initialization error related to URL format
+     if (initializationError && (initializationError.includes('invalid URL') || initializationError.includes('https'))) {
+        return NextResponse.json(
+            { error: 'Server configuration error (Redis)', details: initializationError },
+            { status: 500 }
+        );
+     }
      return NextResponse.json(
          { error: 'Failed to connect to database', details: errorDetails },
          { status: 500 }
@@ -89,16 +103,16 @@ export async function POST() {
         // NX: true // Optional: Only set if the key does not already exist
     });
 
+    // Check if SET command was successful (node-redis v4 returns 'OK' on success)
     if (setResult !== 'OK') {
         console.error(`Failed to set collection ${collectionId} in Redis. Result: ${setResult}`);
-        throw new Error('Failed to save new collection data.');
+        // Provide a more specific error if possible, otherwise generic
+        throw new Error('Failed to save new collection data to Redis.');
     }
 
-    // --- URL Construction using runtime logic ---
-    const baseUrl = getRuntimeBaseUrl();
+
     const collectionUrl = `${baseUrl}/clip/${collectionId}`;
-    console.log(`Create API: Final generated collection URL: ${collectionUrl}`);
-    // --- End URL Construction ---
+    console.log(`Create API: Successfully generated collection URL: ${collectionUrl}`);
 
     const response: CreateResponse = {
       url: collectionUrl,
