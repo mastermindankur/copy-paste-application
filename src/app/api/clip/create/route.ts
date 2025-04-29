@@ -54,23 +54,27 @@ export async function POST() {
     }
 
     // --- URL Construction ---
+    // Log the value of NEXT_PUBLIC_BASE_URL available at runtime in the API route
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    console.log(`Create API Runtime: NEXT_PUBLIC_BASE_URL = ${baseUrl}`); // Explicit runtime logging
+
     let collectionUrl: string;
 
     if (baseUrl && baseUrl.startsWith('http')) { // Basic check for a valid-looking URL
-        console.log(`Create API: Using base URL from env: ${baseUrl}`);
+        console.log(`Create API: Constructing URL with base: ${baseUrl}`);
         collectionUrl = `${baseUrl}/clip/${collectionId}`;
     } else {
         // Log why we are falling back
         if (!baseUrl) {
-            console.error('Create API Error: NEXT_PUBLIC_BASE_URL environment variable is not set!');
+            console.error('Create API Error: NEXT_PUBLIC_BASE_URL environment variable is not set or not passed to runtime!');
         } else {
             console.error(`Create API Error: NEXT_PUBLIC_BASE_URL is invalid ('${baseUrl}'). Must start with http:// or https://.`);
         }
-        // Fallback to relative URL
+        // Fallback to relative URL - This should generally be avoided for shareable links
         collectionUrl = `/clip/${collectionId}`;
-        console.warn(`Create API Warning: Falling back to relative URL: ${collectionUrl}. This might not work correctly for external sharing.`);
+        console.warn(`Create API Warning: Falling back to relative URL: ${collectionUrl}. This might not work correctly for external sharing. Check NEXT_PUBLIC_BASE_URL configuration in your environment.`);
     }
+    console.log(`Create API: Final generated collection URL: ${collectionUrl}`);
     // --- End URL Construction ---
 
     const response: CreateResponse = {
