@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import type { User } from 'firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './config';
@@ -30,8 +30,18 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
+  // Memoize the user object to prevent unnecessary reference changes
+  const memoizedUser = useMemo(() => user, [user]);
+
+  // Memoize the context value
+  const contextValue = useMemo(() => ({
+      user: memoizedUser,
+      loading
+  }), [memoizedUser, loading]);
+
+
   return (
-    <FirebaseContext.Provider value={{ user, loading }}>
+    <FirebaseContext.Provider value={contextValue}>
       <QueryClientProvider client={queryClient}>
             {children}
       </QueryClientProvider>
