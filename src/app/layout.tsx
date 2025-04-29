@@ -1,19 +1,15 @@
+
 import type { Metadata } from 'next';
-import { Geist_Sans as Geist, Geist_Mono } from 'next/font/google';
+import { Inter } from 'next/font/google'; // Import Inter from next/font/google
 import './globals.css';
 import { cn } from '@/lib/utils';
-import { Toaster } from '@/components/ui/toaster';
 import Header from '@/components/layout/header';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import Providers from './providers'; // Import the new client provider component
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+// Instantiate Inter font
+const inter = Inter({
   subsets: ['latin'],
-});
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
+  variable: '--font-sans', // Use a standard variable name like --font-sans
 });
 
 export const metadata: Metadata = {
@@ -21,8 +17,6 @@ export const metadata: Metadata = {
   description: 'Seamless clipboard sharing across devices.',
 };
 
-// Create a client
-const queryClient = new QueryClient()
 
 export default function RootLayout({
   children,
@@ -30,20 +24,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={cn(
-          `${geistSans.variable} ${geistMono.variable} antialiased`,
+          `${inter.variable} font-sans antialiased`, // Apply the font variable and a base font class
           'flex flex-col min-h-screen'
         )}
       >
-         <QueryClientProvider client={queryClient}>
+         {/* Wrap the content with the client-side Providers component */}
+         <Providers>
            <Header />
            <main className="flex-grow container mx-auto px-4 py-8">
              {children}
            </main>
-           <Toaster />
-         </QueryClientProvider>
+           {/* Toaster remains inside Providers to access context if needed */}
+         </Providers>
       </body>
     </html>
   );
